@@ -84,6 +84,31 @@ done
 
 For Cursor / Antigravity / Cline / Aider, see `skills/paper-orchestra/references/host-integration.md`.
 
+## Optional integrations
+
+The pipeline still requires **zero API keys to run** under any host with a
+native web search tool. The only optional integration is for hosts that
+*lack* one:
+
+- **[Exa](https://exa.ai)** — research-paper-focused search engine. The
+  literature-review-agent can use it as a Phase 1 candidate-discovery
+  backend via `skills/literature-review-agent/scripts/exa_search.py`. Set
+  `EXA_API_KEY` in your environment (the repo never commits a key) and the
+  helper queries Exa with `category: "research paper"`, returning 10–20
+  candidates per query in the format the rest of the pipeline expects. See
+  `skills/literature-review-agent/references/exa-search-cookbook.md` for
+  the full recipe, query patterns, cost (~$0.007/query), and security
+  notes.
+
+  ```bash
+  export EXA_API_KEY="your-key-here"   # https://dashboard.exa.ai/
+  python skills/literature-review-agent/scripts/exa_search.py \
+      --query "Sparse attention long context" --num-results 15
+  ```
+
+  Skip Exa entirely if your host (Claude Code, Cursor, Antigravity) already
+  has a native web search tool — the agent will use that instead.
+
 ## Quickstart
 
 ```bash

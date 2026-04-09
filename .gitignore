@@ -28,3 +28,11 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Secrets — never commit API keys
+.env
+.env.*
+*.env
+secrets.json
+.secrets/
+EXA_API_KEY*

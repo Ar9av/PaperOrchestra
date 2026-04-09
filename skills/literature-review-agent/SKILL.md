@@ -91,6 +91,26 @@ top ~10 candidates per query: title, abstract snippet, source URL.
 If your host supports parallel sub-tasks, fire up to 10 concurrent search
 queries. If not, run sequentially — slower but functionally equivalent.
 
+#### Optional: Exa as a Phase 1 backend
+
+If your host has no native web search, OR you want a research-paper-focused
+backend with better signal-to-noise, you can use [Exa](https://exa.ai) via
+the bundled `scripts/exa_search.py` helper. It is **opt-in** and reads
+`EXA_API_KEY` from the environment — the repo never commits a key.
+
+```bash
+export EXA_API_KEY="your-key-here"   # get one at https://dashboard.exa.ai/
+python skills/literature-review-agent/scripts/exa_search.py \
+    --query "Sparse attention long context transformers" \
+    --num-results 15 \
+    --discovered-for "related_work[2.1]"
+```
+
+Output is a normalized candidate list ready to merge into
+`raw_candidates.json`. Phase 2 verification (Semantic Scholar fuzzy match,
+cutoff, dedup) is unchanged. See `references/exa-search-cookbook.md` for
+the full recipe, query patterns, cost estimates, and security notes.
+
 Combine all discovered candidates into a single working list. Tag each with
 the originating query ID so you can later attribute it to "intro" vs
 "related_work[i]".
@@ -239,8 +259,10 @@ If your host has no web search tool, switch to degraded mode:
 - `references/verification-rules.md` — Levenshtein cutoff, year alignment, dedup
 - `references/citation-density-rule.md` — the ≥90% integration rule
 - `references/s2-api-cookbook.md` — Semantic Scholar URLs, fields, rate limits
+- `references/exa-search-cookbook.md` — optional Exa backend for Phase 1 (research-paper-focused web search)
 - `scripts/levenshtein_match.py` — fuzzy title match (ratio > 70)
 - `scripts/check_cutoff.py` — date cmp w/ month → day-1 default
 - `scripts/dedupe_by_id.py` — dedup by S2 paperId
 - `scripts/bibtex_format.py` — build refs.bib from JSON pool
 - `scripts/citation_coverage.py` — ≥90% citation coverage gate
+- `scripts/exa_search.py` — optional Exa Phase 1 backend (reads `EXA_API_KEY` from env)

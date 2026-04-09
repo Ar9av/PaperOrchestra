@@ -35,7 +35,14 @@ For each search query, instruct your host's search tool:
 search("<query>", num_results=10)
 ```
 
-Collect the top 10 results. Each result should yield:
+Or, if you've enabled the optional Exa backend (see `exa-search-cookbook.md`):
+
+```bash
+python scripts/exa_search.py --query "<query>" --num-results 10
+```
+
+Both paths produce the same normalized candidate format. Collect the top
+10 results per query. Each result should yield:
 
 - `title` — the paper's title from the search snippet
 - `snippet` — the abstract preview from the search snippet
