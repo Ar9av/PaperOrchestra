@@ -171,6 +171,12 @@ If you use this skill pack, please cite the paper:
 }
 ```
 
+
+```
+It would have been fun if the repo wrote the paper.
+
+```
+
 ## License
 
 MIT — see `LICENSE`.
