@@ -61,7 +61,7 @@ Everything else (LLM reasoning, web search, Semantic Scholar lookups, LaTeX comp
 
 Steps 2 and 3 run in parallel (see `skills/paper-orchestra/references/pipeline.md`).
 
-## agent-research-aggregator
+## agent-research-aggregator *(optional)*
 
 A pre-pipeline skill that bridges the gap between **scattered AI coding-agent
 history** and the structured `(idea.md, experimental_log.md)` inputs that
@@ -69,7 +69,20 @@ PaperOrchestra expects. If you have been running experiments through Claude
 Code, Cursor, Antigravity, or OpenClaw — but never wrote up a clean experiment
 log — this skill does that extraction for you.
 
-Run it **before** `paper-orchestra`.
+**It is optional.** If `workspace/inputs/idea.md` and
+`workspace/inputs/experimental_log.md` already exist, the skill skips itself
+and the pipeline proceeds directly. It only runs when the inputs are missing or
+when you explicitly point an agent at a directory.
+
+The simplest way to use it: just tell your agent the folder. If you have a
+directory (a project root, an agent cache, any folder with research notes), the
+aggregator figures out what's inside and structures it for PaperOrchestra.
+The first thing it does is aggregate — scanning, extracting, and synthesising —
+so even if the data is scattered across multiple files and formats, it produces
+clean, reviewable inputs before anything gets written.
+
+Run it **before** `paper-orchestra` (or let `paper-orchestra` call it automatically
+when inputs are missing).
 
 ### What it does
 
@@ -227,7 +240,7 @@ Then symlink the skills you want into your host's skill directory:
 mkdir -p ~/.claude/skills
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters; do
+         paper-autoraters agent-research-aggregator; do
   ln -sf ~/paper-orchestra/skills/$s ~/.claude/skills/$s
 done
 
@@ -235,7 +248,7 @@ done
 mkdir -p ~/.all-skills
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters; do
+         paper-autoraters agent-research-aggregator; do
   ln -sf ~/paper-orchestra/skills/$s ~/.all-skills/$s
 done
 ```
@@ -307,6 +320,8 @@ web search tool.  Two optional integrations improve throughput or coverage:
 
 ## Quickstart
 
+### Option A — you already have structured inputs
+
 ```bash
 # 1. scaffold a workspace next to your raw materials
 python skills/paper-orchestra/scripts/init_workspace.py --out workspace/
@@ -318,6 +333,40 @@ python skills/paper-orchestra/scripts/init_workspace.py --out workspace/
 # 3. ask your coding agent:
 #    "Run the paper-orchestra pipeline on ./workspace"
 ```
+
+### Option B — your research is scattered across a directory or agent caches
+
+If you have a project folder and haven't written up a clean experiment log yet,
+just tell your coding agent the folder. The aggregator runs first — automatically
+— and produces `idea.md` and `experimental_log.md` before handing off to the
+pipeline:
+
+```
+"Write a paper from my work in ~/my-project"
+"Turn my experiments in ~/lord into a paper"
+"Aggregate ~/market-crispony and write a conference submission"
+```
+
+The agent will:
+1. Scan the directory for agent caches (`.claude/`, `.cursor/`, `.antigravity/`,
+   `.openclaw/`) and any research notes it finds there.
+2. Extract and synthesize them into `workspace/inputs/idea.md` and
+   `workspace/inputs/experimental_log.md`.
+3. Ask you to review both files, then run the full paper-orchestra pipeline.
+
+You can also point it at any arbitrary directory — not just known agent caches:
+
+```bash
+# Phase 1: discover what's in the folder
+python skills/agent-research-aggregator/scripts/discover_logs.py \
+    --search-roots ~/my-project \
+    --out workspace/ara/discovered_logs.json
+
+# Then let your agent handle the rest ("Run paper-orchestra on ./workspace")
+```
+
+> The aggregator is **optional**. If `workspace/inputs/idea.md` and
+> `workspace/inputs/experimental_log.md` already exist, it is skipped entirely.
 
 A ready-to-run toy case lives at `examples/minimal/`.
 

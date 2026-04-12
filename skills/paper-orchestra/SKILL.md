@@ -63,15 +63,22 @@ it for fidelity *and* to keep generated papers grounded in the user's inputs.
 
 ## Step-by-step execution
 
-### 0. Scaffold and validate
+### 0. Scaffold, check for missing inputs, and validate
 
 ```bash
 python skills/paper-orchestra/scripts/init_workspace.py --out workspace/
-# user drops their inputs into workspace/inputs/
 python skills/paper-orchestra/scripts/validate_inputs.py --workspace workspace/
 ```
 
-If validation fails, stop and tell the user what's missing.
+**Before failing on missing inputs**, check whether aggregation can supply them:
+
+| Inputs state | Action |
+|---|---|
+| `idea.md` and `experimental_log.md` both present and non-empty | Continue to Step 1. |
+| Either is missing/empty, and the user mentioned a directory | Load and run `agent-research-aggregator` with that directory as `--search-roots`, then re-validate. |
+| Either is missing/empty, no directory mentioned | Ask the user: "Your workspace is missing `idea.md` / `experimental_log.md`. Do you have a folder with research notes or agent history I can aggregate from? If so, tell me the path — or drop the files manually into `workspace/inputs/`." |
+
+If validation still fails after aggregation (e.g. `template.tex` or `conference_guidelines.md` are missing), stop and tell the user exactly which files remain outstanding.
 
 **Also probe the TeX installation** (once per workspace, result cached):
 

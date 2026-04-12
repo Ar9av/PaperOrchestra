@@ -1,9 +1,26 @@
 ---
 name: agent-research-aggregator
-description: Pre-pipeline aggregator that scans AI agent cache directories (.claude, .cursor, .antigravity, .openclaw) for experimentation logs, extracts insights and numeric results, and formats them as PaperOrchestra-ready inputs (idea.md + experimental_log.md). TRIGGER when the user says "aggregate my agent logs for paper writing", "extract experiments from my coding agent history", "prepare PaperOrchestra inputs from my cache", "turn my agent logs into a paper", or wants to run PaperOrchestra but only has scattered agent experiment histories rather than structured inputs. Run this BEFORE paper-orchestra.
+description: Pre-pipeline aggregator that scans AI agent cache directories (.claude, .cursor, .antigravity, .openclaw) or any user-specified directory for experimentation logs, extracts insights and numeric results, and formats them as PaperOrchestra-ready inputs (idea.md + experimental_log.md). TRIGGER when the user says "aggregate my agent logs for paper writing", "extract experiments from my coding agent history", "prepare PaperOrchestra inputs from my cache", "turn my agent logs into a paper", mentions a folder or directory they want to use as the basis for a paper, or wants to run PaperOrchestra but only has scattered agent experiment histories rather than structured inputs. Run this BEFORE paper-orchestra. Also called automatically by paper-orchestra when workspace/inputs/idea.md or workspace/inputs/experimental_log.md are missing.
 ---
 
 # agent-research-aggregator
+
+---
+
+## Should I run? (decision gate)
+
+Before starting Phase 1, check whether aggregation is actually needed:
+
+| Situation | Action |
+|---|---|
+| `workspace/inputs/idea.md` **and** `workspace/inputs/experimental_log.md` both exist and are non-empty | **Skip this skill entirely.** Proceed directly to `paper-orchestra`. |
+| Either file is missing or empty, **and** the user provided a directory path | **Run this skill** with that directory as `--search-roots`. |
+| Either file is missing or empty, **and** no directory was provided | Scan cwd and `~` by default; show the discovery summary to the user before continuing. |
+| The inputs exist but look thin (e.g. idea.md has < 5 lines, no numeric data in experimental_log.md) | **Ask the user** whether to supplement with aggregation or proceed as-is. |
+
+The skill is intentionally a pre-pass — it is cheap to skip and should only run when the structured inputs don't already exist.
+
+---
 
 A pre-processing skill for PaperOrchestra (arXiv:2604.05018). Reads scattered
 experimentation artifacts from AI coding-agent cache directories and synthesizes
