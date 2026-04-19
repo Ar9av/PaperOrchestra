@@ -283,15 +283,27 @@ final class LauncherViewModel: ObservableObject {
     }
 
     private func reconcileWorkspaceSelection() {
-        workspaceSelection = Self.workspaceSelection(for: snapshot)
+        let preservedDestination = Self.reconciledDestination(
+            workspaceSelection.destination,
+            hasRun: snapshot.selectedRun != nil
+        )
+        var selection = Self.workspaceSelection(for: snapshot)
+        selection.destination = preservedDestination
+        workspaceSelection = selection
     }
 
     private static func workspaceSelection(for snapshot: LauncherWorkspaceSnapshot) -> WorkspaceSelection {
         var selection = WorkspaceSelection.defaultSelection(hasRun: snapshot.selectedRun != nil)
         selection.selectedStageName = snapshot.selectedStage?.name
-        if snapshot.selectedRun != nil {
-            selection.destination = .run
-        }
         return selection
+    }
+
+    private static func reconciledDestination(_ currentDestination: WorkspaceDestination, hasRun: Bool) -> WorkspaceDestination {
+        switch currentDestination {
+        case .run, .outputs:
+            return hasRun ? currentDestination : .setup
+        default:
+            return currentDestination
+        }
     }
 }

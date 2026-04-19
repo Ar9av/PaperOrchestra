@@ -44,7 +44,7 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.workspaceSelection.selectedStageName, "refinement")
     }
 
-    func test_refreshingSnapshot_promotesWorkspaceSelection_fromSetup_toRun() async throws {
+    func test_refreshingSnapshot_preservesWorkspaceSelection_fromSetup_whenRunAppears() async throws {
         let provider = FixtureWorkspaceProvider(
             snapshots: [
                 FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-2", selectedRunID: nil, selectedStageName: nil),
@@ -62,7 +62,31 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.setup)
 
         viewModel.reload()
-        try await waitForSelection(viewModel, equals: WorkspaceDestination.run)
+        try await waitForRun(viewModel, id: "run-1")
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.setup)
+        XCTAssertEqual(viewModel.workspaceSelection.selectedStageName, "literature")
+    }
+
+    func test_refreshingSnapshot_preservesOutputsDestination_whenRunStillExists() async throws {
+        let provider = FixtureWorkspaceProvider(
+            snapshots: [
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature"),
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "refinement"),
+            ]
+        )
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: provider,
+            notificationScheduler: NoopNotificationScheduler(),
+            actionClient: NoopActionClient()
+        )
+
+        viewModel.selectWorkflowDestination(.outputs)
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
+
+        viewModel.reload()
+        try await waitForSelection(viewModel, equals: WorkspaceDestination.outputs)
         XCTAssertEqual(viewModel.workspaceSelection.selectedStageName, "literature")
     }
 
@@ -92,6 +116,16 @@ final class LauncherViewModelRoutingTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("workspaceSelection.destination did not become \(destination)")
+    }
+
+    private func waitForRun(_ viewModel: LauncherViewModel, id: String) async throws {
+        for _ in 0..<50 {
+            if viewModel.snapshot.selectedRun?.id == id {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("snapshot.selectedRun.id did not become \(id)")
     }
 
     private func temporarySettingsURL() -> URL {
