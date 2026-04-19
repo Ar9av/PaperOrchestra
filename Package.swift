@@ -30,5 +30,10 @@ let package = Package(
             name: "PaperOrchestraLauncherCoreTests",
             dependencies: ["PaperOrchestraLauncherCore"]
         ),
+        .testTarget(
+            name: "PaperOrchestraLauncherAppTests",
+            dependencies: ["PaperOrchestraLauncherApp"],
+            path: "tests/PaperOrchestraLauncherAppTests"
+        ),
     ]
 )
