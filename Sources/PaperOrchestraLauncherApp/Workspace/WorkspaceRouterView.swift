@@ -22,12 +22,7 @@ struct WorkspaceRouterView: View {
                     message: "Workspace review will route here."
                 )
             case .run:
-                WorkspaceRouterPlaceholderView(
-                    title: "Run",
-                    message: viewModel.workspaceSelection.selectedStageName.map {
-                        "Selected stage: \($0.replacingOccurrences(of: "_", with: " ").capitalized)"
-                    } ?? "Run workflow is ready."
-                )
+                LauncherMainContentView(viewModel: viewModel)
             case .outputs:
                 WorkspaceRouterPlaceholderView(
                     title: "Outputs",

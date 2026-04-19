@@ -155,7 +155,7 @@ private struct LauncherSidebarView: View {
     }
 }
 
-private struct LauncherMainContentView: View {
+struct LauncherMainContentView: View {
     @ObservedObject var viewModel: LauncherViewModel
 
     var body: some View {

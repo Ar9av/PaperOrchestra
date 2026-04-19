@@ -52,7 +52,7 @@ final class LauncherViewModel: ObservableObject {
         )
         let loadedSnapshot = chromeController.snapshot
         snapshot = loadedSnapshot
-        workspaceSelection = WorkspaceSelection.defaultSelection(hasRun: loadedSnapshot.selectedRun != nil)
+        workspaceSelection = Self.workspaceSelection(for: loadedSnapshot)
     }
 
     var canStartRun: Bool { chromeController.canStartRun && phase == .running }
@@ -82,6 +82,7 @@ final class LauncherViewModel: ObservableObject {
             settings = chromeController.settings
             await chromeController.refresh(backendReachable: true)
             snapshot = chromeController.snapshot
+            reconcileWorkspaceSelection()
             lastBackendReachable = true
             phase = .running
             beginRefreshing()
@@ -155,7 +156,7 @@ final class LauncherViewModel: ObservableObject {
         chromeController.selectProject(id: projectID)
         snapshot = chromeController.snapshot
         settings = chromeController.settings
-        resetWorkspaceSelectionForCurrentSnapshot()
+        reconcileWorkspaceSelection()
     }
 
     func selectStage(_ stageName: String) {
@@ -167,7 +168,7 @@ final class LauncherViewModel: ObservableObject {
     }
 
     func resetWorkspaceSelectionForCurrentSnapshot() {
-        workspaceSelection = WorkspaceSelection.defaultSelection(hasRun: snapshot.selectedRun != nil)
+        workspaceSelection = Self.workspaceSelection(for: snapshot)
     }
 
     func selectWorkflowDestination(_ destination: WorkspaceDestination) {
@@ -249,6 +250,7 @@ final class LauncherViewModel: ObservableObject {
         await chromeController.refresh(backendReachable: backendReachable)
         snapshot = chromeController.snapshot
         settings = chromeController.settings
+        reconcileWorkspaceSelection()
         if !backendReachable {
             await recoverBackendIfNeeded()
         }
@@ -274,8 +276,22 @@ final class LauncherViewModel: ObservableObject {
             reloadToken = UUID()
             await chromeController.refresh(backendReachable: true)
             snapshot = chromeController.snapshot
+            reconcileWorkspaceSelection()
         } catch {
             // Keep the launcher in its recovery state and try again on the next throttled refresh.
         }
+    }
+
+    private func reconcileWorkspaceSelection() {
+        workspaceSelection = Self.workspaceSelection(for: snapshot)
+    }
+
+    private static func workspaceSelection(for snapshot: LauncherWorkspaceSnapshot) -> WorkspaceSelection {
+        var selection = WorkspaceSelection.defaultSelection(hasRun: snapshot.selectedRun != nil)
+        selection.selectedStageName = snapshot.selectedStage?.name
+        if snapshot.selectedRun != nil {
+            selection.destination = .run
+        }
+        return selection
     }
 }
