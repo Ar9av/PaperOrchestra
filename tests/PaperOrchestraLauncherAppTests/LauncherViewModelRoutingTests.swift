@@ -86,8 +86,8 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
 
         viewModel.reload()
-        try await waitForSelection(viewModel, equals: WorkspaceDestination.outputs)
-        XCTAssertEqual(viewModel.workspaceSelection.selectedStageName, "literature")
+        try await waitForSelectedStage(viewModel, name: "refinement")
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
     }
 
     private func makeViewModel(
@@ -126,6 +126,16 @@ final class LauncherViewModelRoutingTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("snapshot.selectedRun.id did not become \(id)")
+    }
+
+    private func waitForSelectedStage(_ viewModel: LauncherViewModel, name: String) async throws {
+        for _ in 0..<50 {
+            if viewModel.snapshot.selectedStage?.name == name {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("snapshot.selectedStage?.name did not become \(name)")
     }
 
     private func temporarySettingsURL() -> URL {
