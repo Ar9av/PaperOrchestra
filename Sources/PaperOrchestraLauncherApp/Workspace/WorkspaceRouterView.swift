@@ -22,12 +22,9 @@ struct WorkspaceRouterView: View {
                     message: "Workspace review will route here."
                 )
             case .run:
-                LauncherMainContentView(viewModel: viewModel)
+                RunWorkspaceView(viewModel: viewModel)
             case .outputs:
-                WorkspaceRouterPlaceholderView(
-                    title: "Outputs",
-                    message: "Workspace outputs will route here."
-                )
+                OutputsWorkspaceView(viewModel: viewModel)
             }
         }
     }
