@@ -32,7 +32,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PaperOrchestraLauncherAppTests",
-            dependencies: ["PaperOrchestraLauncherApp"],
+            dependencies: ["PaperOrchestraLauncherApp", "PaperOrchestraLauncherCore"],
             path: "tests/PaperOrchestraLauncherAppTests"
         ),
     ]

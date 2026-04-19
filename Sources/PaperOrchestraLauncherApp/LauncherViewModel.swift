@@ -16,6 +16,7 @@ final class LauncherViewModel: ObservableObject {
     @Published var controlRoomURL: URL?
     @Published var reloadToken = UUID()
     @Published var snapshot: LauncherWorkspaceSnapshot
+    @Published var workspaceSelection: WorkspaceSelection
 
     private let directories: LauncherDirectories
     private let settingsStore: LauncherSettingsStore
@@ -29,21 +30,29 @@ final class LauncherViewModel: ObservableObject {
 
     init(
         directories: LauncherDirectories = LauncherDirectories(),
-        healthChecker: HealthChecking = URLSessionHealthChecker()
+        healthChecker: HealthChecking = URLSessionHealthChecker(),
+        settingsStore: LauncherSettingsStore? = nil,
+        settings: LauncherSettings? = nil,
+        workspaceProvider: LauncherWorkspaceProviding = LauncherWorkspaceRepository(),
+        notificationScheduler: LauncherNotificationScheduling = UserNotificationScheduler(),
+        actionClient: LauncherActionPerforming = LauncherActionClient()
     ) {
         self.directories = directories
         self.healthChecker = healthChecker
-        settingsStore = LauncherSettingsStore(settingsURL: directories.settingsURL)
-        let loadedSettings = (try? settingsStore.load()) ?? .defaultValue()
-        settings = loadedSettings
+        let resolvedSettingsStore = settingsStore ?? LauncherSettingsStore(settingsURL: directories.settingsURL)
+        self.settingsStore = resolvedSettingsStore
+        let loadedSettings = settings ?? ((try? resolvedSettingsStore.load()) ?? .defaultValue())
+        self.settings = loadedSettings
         chromeController = LauncherChromeController(
             settings: loadedSettings,
-            settingsStore: settingsStore,
-            workspaceProvider: LauncherWorkspaceRepository(),
-            notificationCoordinator: LauncherNotificationCoordinator(scheduler: UserNotificationScheduler()),
-            actionClient: LauncherActionClient()
+            settingsStore: resolvedSettingsStore,
+            workspaceProvider: workspaceProvider,
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: notificationScheduler),
+            actionClient: actionClient
         )
-        snapshot = chromeController.snapshot
+        let loadedSnapshot = chromeController.snapshot
+        snapshot = loadedSnapshot
+        workspaceSelection = WorkspaceSelection.defaultSelection(hasRun: loadedSnapshot.selectedRun != nil)
     }
 
     var canStartRun: Bool { chromeController.canStartRun && phase == .running }
@@ -146,12 +155,23 @@ final class LauncherViewModel: ObservableObject {
         chromeController.selectProject(id: projectID)
         snapshot = chromeController.snapshot
         settings = chromeController.settings
+        resetWorkspaceSelectionForCurrentSnapshot()
     }
 
     func selectStage(_ stageName: String) {
         chromeController.selectStage(name: stageName)
         snapshot = chromeController.snapshot
         settings = chromeController.settings
+        workspaceSelection.destination = .run
+        workspaceSelection.selectedStageName = stageName
+    }
+
+    func resetWorkspaceSelectionForCurrentSnapshot() {
+        workspaceSelection = WorkspaceSelection.defaultSelection(hasRun: snapshot.selectedRun != nil)
+    }
+
+    func selectWorkflowDestination(_ destination: WorkspaceDestination) {
+        workspaceSelection.destination = destination
     }
 
     func startRun() {

@@ -25,7 +25,7 @@ struct RootView: View {
                     LauncherSidebarView(viewModel: viewModel)
                 } detail: {
                     HSplitView {
-                        LauncherMainContentView(viewModel: viewModel)
+                        WorkspaceRouterView(viewModel: viewModel)
                         LauncherInspectorView(viewModel: viewModel)
                             .frame(minWidth: 300, idealWidth: 340, maxWidth: 380)
                     }
