@@ -7,20 +7,14 @@ struct WorkspaceRouterView: View {
         Group {
             switch viewModel.workspaceSelection.destination {
             case .setup:
-                WorkspaceRouterPlaceholderView(
-                    title: "Setup",
-                    message: "Workspace setup will route here."
-                )
+                SetupWorkspaceView(viewModel: viewModel)
             case .inputs(let panel):
                 WorkspaceRouterPlaceholderView(
                     title: "Inputs",
                     message: "Selected panel: \(panel.rawValue.capitalized)"
                 )
             case .review:
-                WorkspaceRouterPlaceholderView(
-                    title: "Review",
-                    message: "Workspace review will route here."
-                )
+                ReviewWorkspaceView(viewModel: viewModel)
             case .run:
                 RunWorkspaceView(viewModel: viewModel)
             case .outputs:
