@@ -117,6 +117,8 @@ def main():
         failures.append("idea.md missing hypothesis signal")
 
     # Check 3: experimental_log.md table count
+    # Prose-style logs are valid as long as they contain enough numeric values
+    # (checked next). A missing table is therefore a warning, not a hard fail.
     table_count = count_markdown_tables(log_text)
     if table_count >= args.min_tables:
         print(
@@ -125,11 +127,9 @@ def main():
         )
     else:
         print(
-            f"[FAIL] experimental_log.md: {table_count} tables found "
-            f"(min: {args.min_tables})"
-        )
-        failures.append(
-            f"experimental_log.md table count {table_count} < {args.min_tables}"
+            f"[WARN] experimental_log.md: {table_count} markdown tables found "
+            f"(min: {args.min_tables}). Prose-format logs are accepted when "
+            f"numeric values meet the threshold — see Check 4."
         )
 
     # Check 4: experimental_log.md numeric values

@@ -13,6 +13,60 @@ import os
 import sys
 import textwrap
 
+# Minimal fallback template.tex written when the user hasn't provided one.
+# Covers the sections required by most conference guidelines and is
+# compatible with both single- and double-column document classes.
+FALLBACK_TEMPLATE = textwrap.dedent(r"""
+    \documentclass{article}
+
+    % Minimal template scaffolded by init_workspace.py.
+    % Replace \documentclass{article} with your target conference class
+    % (e.g. \documentclass[10pt,twocolumn]{article} for double-column venues).
+    % The Section Writing Agent will fill the TODO placeholders.
+    % The Literature Review Agent fills Introduction and Related Work.
+
+    \usepackage[utf8]{inputenc}
+    \usepackage[T1]{fontenc}
+    \usepackage{amsmath}
+    \usepackage{amssymb}
+    \usepackage{booktabs}
+    \usepackage{graphicx}
+    \usepackage{hyperref}
+    \usepackage{geometry}
+    \geometry{margin=1in}
+
+    \title{TODO: Title}
+    \author{Anonymous Authors}
+    \date{}
+
+    \begin{document}
+    \maketitle
+
+    \begin{abstract}
+    TODO: Abstract.
+    \end{abstract}
+
+    \section{Introduction}
+    TODO: Introduction. (To be filled by literature-review-agent.)
+
+    \section{Related Work}
+    TODO: Related Work. (To be filled by literature-review-agent.)
+
+    \section{Method}
+    TODO: Method. (To be filled by section-writing-agent.)
+
+    \section{Experiments}
+    TODO: Experiments. (To be filled by section-writing-agent.)
+
+    \section{Conclusion}
+    TODO: Conclusion. (To be filled by section-writing-agent.)
+
+    \bibliographystyle{plain}
+    \bibliography{refs}
+
+    \end{document}
+""").lstrip()
+
 WORKSPACE_DIRS = [
     "inputs",
     "inputs/figures",
@@ -67,8 +121,17 @@ def main() -> int:
         with open(inputs_readme, "w") as f:
             f.write(INPUTS_README)
 
+    # Write a fallback template.tex if none exists yet.
+    # Users can overwrite it with their conference-specific class at any time.
+    template_path = os.path.join(out, "inputs", "template.tex")
+    if not os.path.exists(template_path):
+        with open(template_path, "w") as f:
+            f.write(FALLBACK_TEMPLATE)
+        print("INFO: wrote a minimal fallback template.tex to inputs/. "
+              "Replace \\documentclass{article} with your target conference class if needed.")
+
     print(f"Workspace scaffolded at: {out}")
-    print("Next: drop your idea.md, experimental_log.md, template.tex, and")
+    print("Next: drop your idea.md, experimental_log.md, and")
     print("conference_guidelines.md into the inputs/ subdirectory, then run:")
     print(f"  python {os.path.dirname(__file__)}/validate_inputs.py --workspace {out}")
     return 0
