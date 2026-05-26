@@ -98,3 +98,24 @@ call produces `intro_relwork.tex`, this script:
 
 If the gate fails, the host agent must re-prompt the writing step,
 explicitly listing the un-cited keys and asking the agent to integrate them.
+
+## Rule 6 — Cross-index corroboration (supplementary)
+
+Rules 1–4 verify candidates against a single index (Semantic Scholar). Rule 6
+adds an independent second opinion: every paper that survives S2 verification is
+re-checked against **Crossref** and **OpenAlex** before the bibliography is
+built. This is not in the source paper — it is an addition that targets
+hallucinated citations, which a single index can fail to catch.
+
+Implementation: `scripts/cross_verify.py` (+ `crossref_client.py`,
+`openalex_client.py`). It is a **WARN gate**: it annotates each pool paper with
+a `cross_verification` confidence tier (`high` / `medium` / `low` / `conflict`)
+and writes `cross_verification_report.json`, but never deletes citations — the
+host agent reviews the `low` and `conflict` tiers and decides.
+
+Matching reuses the same Levenshtein title threshold as Rule 1 (`> 70`); a DOI
+present in the pool is looked up exactly first, falling back to title search.
+
+⚠️ `low` means "could not corroborate," not "fabricated": arXiv-only preprints
+without a DOI are a common benign cause. See `cross-index-verification.md` for
+the full tier definitions, polite-pool env vars, and the false-positive note.
