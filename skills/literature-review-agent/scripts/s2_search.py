@@ -34,27 +34,119 @@ Exit codes:
     2  usage error (bad arguments)
 """
 import argparse
+import importlib.util
 import json
 import os
+import ssl
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+try:
+    import s2_shared
+except ImportError:  # pragma: no cover - direct script execution path
+    _shared_path = Path(__file__).with_name("s2_shared.py")
+    if _shared_path.exists():
+        _spec = importlib.util.spec_from_file_location("s2_shared", _shared_path)
+        s2_shared = importlib.util.module_from_spec(_spec) if _spec and _spec.loader else None
+        if _spec and _spec.loader and s2_shared is not None:
+            _spec.loader.exec_module(s2_shared)
+    else:
+        s2_shared = None
 
 S2_BASE = "https://api.semanticscholar.org/graph/v1"
 DEFAULT_FIELDS = "title,abstract,year,authors,venue,externalIds"
 DEFAULT_LIMIT = 5
 MAX_LIMIT = 100
 _RETRY_SLEEP = 5   # seconds to wait after a 429 before retrying
+GLOBAL_CONFIG_PATH = Path.home() / ".paperorchestra" / "config"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _load_runtime_env_defaults() -> None:
+    for source in (GLOBAL_CONFIG_PATH, REPO_ROOT / ".env"):
+        for key, value in _parse_env_file(source).items():
+            if value and not os.environ.get(key):
+                os.environ[key] = value
+
+
+def _shared_cache_db() -> str:
+    return os.environ.get("PAPERORCHESTRA_S2_CACHE_DB", "").strip()
+
+
+def _env_flag(key: str) -> bool:
+    return str(os.environ.get(key, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_shared_cache(query: str) -> dict | None:
+    db_path = _shared_cache_db()
+    if not db_path or s2_shared is None:
+        return None
+    return s2_shared.load_cached_response(Path(db_path), query)
+
+
+def _store_shared_cache(query: str, response: dict) -> None:
+    db_path = _shared_cache_db()
+    if not db_path or s2_shared is None:
+        return
+    s2_shared.store_cached_response(Path(db_path), query, response)
+
+
+def _wait_for_shared_rate_limit() -> None:
+    db_path = _shared_cache_db()
+    if not db_path or s2_shared is None:
+        return
+    interval = float(os.environ.get("PAPERORCHESTRA_S2_RATE_LIMIT_SECONDS", "1.0") or "1.0")
+    s2_shared.wait_for_rate_limit(Path(db_path), interval_seconds=interval)
 
 
 def _build_headers() -> dict:
+    _load_runtime_env_defaults()
     headers = {"Accept": "application/json"}
     api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
     if api_key:
         headers["x-api-key"] = api_key
     return headers
+
+
+def _ca_bundle_path() -> str:
+    _load_runtime_env_defaults()
+    for env_key in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        value = os.environ.get(env_key, "").strip()
+        if value and Path(value).exists():
+            return value
+    try:
+        import certifi
+    except ImportError:
+        return ""
+    try:
+        bundle = Path(certifi.where())
+    except Exception:
+        return ""
+    return str(bundle) if bundle.exists() else ""
+
+
+def _ssl_context() -> ssl.SSLContext | None:
+    cafile = _ca_bundle_path()
+    if not cafile:
+        return None
+    return ssl.create_default_context(cafile=cafile)
 
 
 def search(query: str, limit: int, fields: str, retries: int = 3) -> dict:
@@ -71,12 +163,25 @@ def search(query: str, limit: int, fields: str, retries: int = 3) -> dict:
     })
     url = f"{S2_BASE}/paper/search?{params}"
     headers = _build_headers()
+    cached = _load_shared_cache(query)
+    if cached is not None:
+        return cached
+    if _env_flag("PAPERORCHESTRA_ACCEPTANCE_STRICT_S2_CACHE"):
+        print(
+            f"ERROR: strict acceptance Semantic Scholar cache miss for query: {query}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    _wait_for_shared_rate_limit()
 
     for attempt in range(1, retries + 1):
         req = urllib.request.Request(url, headers=headers, method="GET")
+        context = _ssl_context()
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=30, context=context) as resp:
+                parsed = json.loads(resp.read().decode("utf-8"))
+                _store_shared_cache(query, parsed)
+                return parsed
         except urllib.error.HTTPError as exc:
             if exc.code == 429:
                 if attempt < retries:
@@ -129,7 +234,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--query", required=True,
+        "--query",
         help="Paper title (or search query) to look up on Semantic Scholar",
     )
     p.add_argument(
@@ -165,6 +270,9 @@ def main() -> int:
                 '  2. export SEMANTIC_SCHOLAR_API_KEY="your-key-here"'
             )
         return 0
+
+    if not args.query:
+        p.error("the following arguments are required: --query")
 
     limit = max(1, min(MAX_LIMIT, args.limit))
     response = search(args.query, limit, args.fields)

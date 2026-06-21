@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero">
+  <h1>PaperOrchestra Control Room</h1>
+  <p>
+    Build and run PaperOrchestra from a persistent local workspace. Codex is the primary orchestrator,
+    Atlas is available for browser-native research and Deep Research work, and PaperBanana is used when
+    available for diagram-heavy plotting.
+  </p>
+</section>
+
+<section class="grid" style="margin-bottom: 24px;">
+  <article class="card">
+    <h2>Integrations</h2>
+    <div class="integration-status-list">
+      <div class="integration-status-row">
+        <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.codex.available else 'failed' }}"></span>Codex</span>
+        <span class="integration-status-value {{ 'succeeded' if integrations.codex.available else 'failed' }}">{{ 'Reachable' if integrations.codex.available else 'Unreachable' }}</span>
+      </div>
+      <div class="integration-status-row">
+        <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.atlas.available else 'failed' }}"></span>Atlas</span>
+        <span class="integration-status-value {{ 'succeeded' if integrations.atlas.available else 'failed' }}">{{ 'Reachable' if integrations.atlas.available else 'Unreachable' }}</span>
+      </div>
+      <div class="integration-status-row">
+        <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.semantic_scholar.configured else 'paused' }}"></span>Semantic Scholar</span>
+        <span class="integration-status-value {{ 'succeeded' if integrations.semantic_scholar.configured else 'paused' }}">{{ 'Active' if integrations.semantic_scholar.configured else 'Inactive' }}</span>
+      </div>
+      <div class="integration-status-row">
+        <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.figure_backend.valid else 'paused' }}"></span>Figure backend</span>
+        <span class="integration-status-value {{ 'succeeded' if integrations.figure_backend.valid else 'paused' }}">{{ 'Active' if integrations.figure_backend.valid else 'Inactive' }}</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <h2>Create a project</h2>
+    <form method="post" action="/projects">
+      <label>Paper title
+        <input type="text" name="title" placeholder="Adaptive Top-K Attention for Long Context" required>
+      </label>
+      <label>Venue
+        <input type="text" name="venue" placeholder="ICLR 2027">
+      </label>
+      <label>Description
+        <textarea name="description" placeholder="One-sentence summary of the project and what makes it interesting."></textarea>
+      </label>
+      <label>Optional source directory for aggregation
+        <input type="text" name="source_directory" placeholder="/absolute/path/to/research-or-agent-history">
+      </label>
+      <div class="actions">
+        <button type="submit">Create project</button>
+      </div>
+    </form>
+  </article>
+</section>
+
+<section class="card">
+  <h2>Saved projects</h2>
+  {% if projects %}
+    <div class="file-list">
+      {% for project in projects %}
+        <div class="file-item">
+          <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+            <div>
+              <div><strong><a href="/projects/{{ project.project_id }}">{{ project.title }}</a></strong></div>
+              <div class="muted">{{ project.venue or "No venue set" }}</div>
+              <div class="muted">{{ project.workspace_path }}</div>
+            </div>
+            <span class="status {{ project.last_status }}">{{ project.last_status.replace('_', ' ').title() }}</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="hint">No saved projects yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

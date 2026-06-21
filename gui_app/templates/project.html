@@ -1,0 +1,734 @@
+{% extends "base.html" %}
+
+{% block title %}{{ project.title }} · PaperOrchestra{% endblock %}
+
+{% block refresh %}{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>{{ project.title }}</h1>
+  <p>{{ project.description or "Fill in the structured inputs, then run the autonomous Codex-first pipeline from this workspace." }}</p>
+</section>
+
+<section class="tabs">
+  {% for item in steps %}
+    <a class="tab {% if step == item %}active{% endif %}" href="/projects/{{ project.project_id }}?step={{ item }}">{{ loop.index }}. {{ item.replace('_', ' ').title() }}</a>
+  {% endfor %}
+</section>
+
+<section class="split">
+  <div class="stack">
+    {% if step == 'setup' %}
+      <article class="card">
+        <h2>Setup</h2>
+        <form method="post" action="/projects/{{ project.project_id }}/save/setup">
+          <label>Paper title
+            <input type="text" name="title" value="{{ project.setup.title }}">
+          </label>
+          <label>Venue
+            <input type="text" name="venue" value="{{ project.setup.venue }}">
+          </label>
+          <label>Description
+            <textarea name="description">{{ project.setup.description }}</textarea>
+          </label>
+          <label>Optional source directory for aggregation
+            <input type="text" name="source_directory" value="{{ project.ingest.source_directory }}">
+          </label>
+          <div class="actions">
+            <button type="submit">Save and continue</button>
+          </div>
+        </form>
+      </article>
+    {% elif step == 'inputs' %}
+      <article class="card">
+        <div class="section-head">
+          <div>
+            <h2>Input Workbench</h2>
+            <p class="hint">Author the four canonical PaperOrchestra inputs in one place. Each text input supports a structured editor and a raw file-compatible view, and the current validator messages stay visible as you iterate.</p>
+          </div>
+          <div class="actions">
+            <a class="button secondary" href="/projects/{{ project.project_id }}?step=inputs&panel={{ next_input_panel }}">Next incomplete input</a>
+            <a class="button secondary" href="/projects/{{ project.project_id }}?step=review">Open review</a>
+          </div>
+        </div>
+
+        <div class="workbench">
+          <aside class="input-rail">
+            {% for item in input_panels %}
+              <a class="input-link {% if active_input_panel == item.name %}active{% endif %}" href="/projects/{{ project.project_id }}?step=inputs&panel={{ item.name }}">
+                <span>{{ item.label }}</span>
+                <span class="status {% if item.completed %}succeeded{% elif item.has_blockers %}failed{% else %}queued{% endif %}">
+                  {% if item.completed %}Ready{% elif item.has_blockers %}Needs attention{% else %}In progress{% endif %}
+                </span>
+              </a>
+            {% endfor %}
+          </aside>
+
+          <div class="stack">
+            {% if active_input_panel == 'idea' %}
+              <article class="card input-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Idea</h3>
+                    <p class="muted">Problem, hypothesis, method, and expected contribution become `workspace/inputs/idea.md`.</p>
+                  </div>
+                  <span class="status {% if input_validation.get('inputs', {}).get('idea', {}).get('has_blockers') %}failed{% else %}queued{% endif %}">
+                    {{ 'Needs attention' if input_validation.get('inputs', {}).get('idea', {}).get('has_blockers') else 'Editing' }}
+                  </span>
+                </div>
+                <div class="editor-tabs" data-editor-root>
+                  <button class="secondary" type="button" data-editor-tab="structured">Structured</button>
+                  <button class="secondary" type="button" data-editor-tab="raw">Raw Markdown</button>
+                </div>
+                <form method="post" action="/projects/{{ project.project_id }}/save/input/idea" data-dirty-form data-validate-url="/api/projects/{{ project.project_id }}/inputs/idea/validate">
+                  <input type="hidden" name="editor_mode" value="{{ project.idea.editor_mode or 'structured' }}" data-editor-mode-target>
+                  <div data-editor-panel="structured">
+                    <label>Problem statement
+                      <textarea name="problem_statement">{{ project.idea.problem_statement }}</textarea>
+                    </label>
+                    <label>Core hypothesis
+                      <textarea name="core_hypothesis">{{ project.idea.core_hypothesis }}</textarea>
+                    </label>
+                    <label>Methodology
+                      <textarea name="methodology">{{ project.idea.methodology }}</textarea>
+                    </label>
+                    <label>Expected contribution
+                      <textarea name="expected_contribution">{{ project.idea.expected_contribution }}</textarea>
+                    </label>
+                    <label>Additional notes
+                      <textarea name="notes">{{ project.idea.notes }}</textarea>
+                    </label>
+                  </div>
+                  <div data-editor-panel="raw" hidden>
+                    <label>Raw `idea.md`
+                      <textarea name="raw_markdown">{{ project.idea.raw_markdown }}</textarea>
+                    </label>
+                  </div>
+                  <label>Upload existing `idea.md`
+                    <input type="file" name="idea_upload" accept=".md,.txt">
+                  </label>
+                  <p class="dirty-indicator" hidden>Unsaved changes</p>
+                  {% for message in input_validation.get('inputs', {}).get('idea', {}).get('messages', []) %}
+                    <p class="hint">{{ message }}</p>
+                  {% endfor %}
+                  <div class="actions">
+                    <button type="submit">Save idea</button>
+                    <a class="button secondary" href="/projects/{{ project.project_id }}?step=inputs&panel=experimental">Next: Experimental Log</a>
+                  </div>
+                </form>
+              </article>
+            {% elif active_input_panel == 'experimental' %}
+              <article class="card input-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Experimental Log</h3>
+                    <p class="muted">Setup, raw numeric data, and qualitative observations become `workspace/inputs/experimental_log.md`.</p>
+                  </div>
+                  <span class="status {% if input_validation.get('inputs', {}).get('experimental', {}).get('has_blockers') %}failed{% else %}queued{% endif %}">
+                    {{ 'Needs attention' if input_validation.get('inputs', {}).get('experimental', {}).get('has_blockers') else 'Editing' }}
+                  </span>
+                </div>
+                <div class="editor-tabs" data-editor-root>
+                  <button class="secondary" type="button" data-editor-tab="structured">Structured</button>
+                  <button class="secondary" type="button" data-editor-tab="raw">Raw Markdown</button>
+                </div>
+                <form method="post" action="/projects/{{ project.project_id }}/save/input/experimental" enctype="multipart/form-data" data-dirty-form data-validate-url="/api/projects/{{ project.project_id }}/inputs/experimental/validate">
+                  <input type="hidden" name="editor_mode" value="{{ project.experimental.editor_mode or 'structured' }}" data-editor-mode-target>
+                  <div data-editor-panel="structured">
+                    <label>Experimental setup
+                      <textarea name="setup_text">{{ project.experimental.setup_text }}</textarea>
+                    </label>
+                    <label>Raw numeric data
+                      <textarea name="raw_numeric_data">{{ project.experimental.raw_numeric_data }}</textarea>
+                    </label>
+                    <label>Qualitative observations
+                      <textarea name="qualitative_observations">{{ project.experimental.qualitative_observations }}</textarea>
+                    </label>
+                  </div>
+                  <div data-editor-panel="raw" hidden>
+                    <label>Raw `experimental_log.md`
+                      <textarea name="raw_markdown">{{ project.experimental.log_text }}</textarea>
+                    </label>
+                  </div>
+                  <label>Upload experimental log
+                    <input type="file" name="experimental_upload" accept=".md,.txt">
+                  </label>
+                  <p class="dirty-indicator" hidden>Unsaved changes</p>
+                  {% for message in input_validation.get('inputs', {}).get('experimental', {}).get('messages', []) %}
+                    <p class="hint">{{ message }}</p>
+                  {% endfor %}
+                  <div class="actions">
+                    <button type="submit">Save experimental log</button>
+                    <a class="button secondary" href="/projects/{{ project.project_id }}?step=inputs&panel=template">Next: Template</a>
+                  </div>
+                </form>
+              </article>
+            {% elif active_input_panel == 'template' %}
+              <article class="card input-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Template</h3>
+                    <p class="muted">Upload or edit the conference `template.tex` directly. This raw text is written to `workspace/inputs/template.tex`.</p>
+                  </div>
+                  <span class="status {% if input_validation.get('inputs', {}).get('template', {}).get('has_blockers') %}failed{% else %}queued{% endif %}">
+                    {{ 'Needs attention' if input_validation.get('inputs', {}).get('template', {}).get('has_blockers') else 'Editing' }}
+                  </span>
+                </div>
+                <form method="post" action="/projects/{{ project.project_id }}/save/input/template" enctype="multipart/form-data" data-dirty-form data-validate-url="/api/projects/{{ project.project_id }}/inputs/template/validate">
+                  <label>Raw `template.tex`
+                    <textarea name="template_text">{{ project.template.text }}</textarea>
+                  </label>
+                  <label>Upload template.tex
+                    <input type="file" name="template_upload" accept=".tex">
+                  </label>
+                  {% if project.template.source_filename %}
+                    <div class="mono">{{ project.template.source_filename }}</div>
+                  {% endif %}
+                  <p class="dirty-indicator" hidden>Unsaved changes</p>
+                  {% for message in input_validation.get('inputs', {}).get('template', {}).get('messages', []) %}
+                    <p class="hint">{{ message }}</p>
+                  {% endfor %}
+                  <div class="actions">
+                    <button type="submit">Save template</button>
+                    <a class="button secondary" href="/projects/{{ project.project_id }}?step=inputs&panel=guidelines">Next: Guidelines</a>
+                  </div>
+                </form>
+              </article>
+            {% elif active_input_panel == 'guidelines' %}
+              <article class="card input-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Guidelines</h3>
+                    <p class="muted">Provide venue rules as structured fields or raw markdown. The current text becomes `workspace/inputs/conference_guidelines.md`.</p>
+                  </div>
+                  <span class="status {% if input_validation.get('inputs', {}).get('guidelines', {}).get('has_blockers') %}failed{% else %}queued{% endif %}">
+                    {{ 'Needs attention' if input_validation.get('inputs', {}).get('guidelines', {}).get('has_blockers') else 'Editing' }}
+                  </span>
+                </div>
+                <div class="editor-tabs" data-editor-root>
+                  <button class="secondary" type="button" data-editor-tab="structured">Structured</button>
+                  <button class="secondary" type="button" data-editor-tab="raw">Raw Markdown</button>
+                </div>
+                <form method="post" action="/projects/{{ project.project_id }}/save/input/guidelines" enctype="multipart/form-data" data-dirty-form data-validate-url="/api/projects/{{ project.project_id }}/inputs/guidelines/validate">
+                  <input type="hidden" name="editor_mode" value="{{ project.guidelines.editor_mode or 'structured' }}" data-editor-mode-target>
+                  <div data-editor-panel="structured">
+                    <label>Deadline
+                      <input type="text" name="deadline" value="{{ project.guidelines.deadline }}">
+                    </label>
+                    <label>Page limit
+                      <input type="text" name="page_limit" value="{{ project.guidelines.page_limit }}">
+                    </label>
+                    <label>Required sections
+                      <textarea name="required_sections">{{ project.guidelines.required_sections }}</textarea>
+                    </label>
+                    <label>Formatting notes
+                      <textarea name="formatting_notes">{{ project.guidelines.formatting_notes }}</textarea>
+                    </label>
+                  </div>
+                  <div data-editor-panel="raw" hidden>
+                    <label>Raw `conference_guidelines.md`
+                      <textarea name="guidelines_text">{{ project.guidelines.guidelines_text }}</textarea>
+                    </label>
+                  </div>
+                  <label>Upload conference guidelines
+                    <input type="file" name="guidelines_upload" accept=".md,.txt,.pdf">
+                  </label>
+                  <p class="dirty-indicator" hidden>Unsaved changes</p>
+                  {% for message in input_validation.get('inputs', {}).get('guidelines', {}).get('messages', []) %}
+                    <p class="hint">{{ message }}</p>
+                  {% endfor %}
+                  <div class="actions">
+                    <button type="submit">Save guidelines</button>
+                    <a class="button secondary" href="/projects/{{ project.project_id }}?step=inputs&panel=figures">Next: Figures</a>
+                  </div>
+                </form>
+              </article>
+            {% else %}
+              <article class="card input-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Figures</h3>
+                    <p class="muted">Optional source figures are copied into `workspace/inputs/figures/` and can be reused by the plotting stage.</p>
+                  </div>
+                  <span class="status queued">Optional</span>
+                </div>
+                <form method="post" action="/projects/{{ project.project_id }}/save/input/figures" enctype="multipart/form-data" data-dirty-form data-validate-url="/api/projects/{{ project.project_id }}/inputs/figures/validate">
+                  <label>Add figures
+                    <input type="file" name="figure_uploads" accept=".png,.jpg,.jpeg,.pdf" multiple>
+                  </label>
+                  <p class="dirty-indicator" hidden>Unsaved changes</p>
+                  {% for message in input_validation.get('inputs', {}).get('figures', {}).get('messages', []) %}
+                    <p class="hint">{{ message }}</p>
+                  {% endfor %}
+                  <div class="actions">
+                    <button type="submit">Add figures</button>
+                    <a class="button secondary" href="/projects/{{ project.project_id }}?step=review">Continue to review</a>
+                  </div>
+                </form>
+                <div class="file-list" style="margin-top:12px;">
+                  {% if figure_manifest %}
+                    {% for item in figure_manifest %}
+                      <div class="file-item">
+                        <strong>{{ item.name }}</strong>
+                        <div class="muted">{{ item.size_label }}</div>
+                        <div class="actions">
+                          <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ item.url_path }}" target="_blank">Open</a>
+                          <form method="post" action="/projects/{{ project.project_id }}/save/input/figures/remove">
+                            <input type="hidden" name="path" value="{{ item.path }}">
+                            <button class="secondary" type="submit">Remove</button>
+                          </form>
+                        </div>
+                      </div>
+                    {% endfor %}
+                  {% else %}
+                    <p class="hint">No source figures uploaded yet.</p>
+                  {% endif %}
+                </div>
+              </article>
+            {% endif %}
+          </div>
+        </div>
+      </article>
+    {% elif step == 'idea' %}
+      <article class="card">
+        <h2>Idea summary</h2>
+        <form method="post" action="/projects/{{ project.project_id }}/save/idea" enctype="multipart/form-data">
+          <label>Problem statement
+            <textarea name="problem_statement">{{ project.idea.problem_statement }}</textarea>
+          </label>
+          <label>Core hypothesis
+            <textarea name="core_hypothesis">{{ project.idea.core_hypothesis }}</textarea>
+          </label>
+          <label>Methodology
+            <textarea name="methodology">{{ project.idea.methodology }}</textarea>
+          </label>
+          <label>Expected contribution
+            <textarea name="expected_contribution">{{ project.idea.expected_contribution }}</textarea>
+          </label>
+          <label>Additional notes
+            <textarea name="notes">{{ project.idea.notes }}</textarea>
+          </label>
+          <label>Optional idea upload
+            <input type="file" name="idea_upload">
+          </label>
+          <div class="actions"><button type="submit">Save and continue</button></div>
+        </form>
+      </article>
+    {% elif step == 'experimental' %}
+      <article class="card">
+        <h2>Experimental log</h2>
+        <form method="post" action="/projects/{{ project.project_id }}/save/experimental" enctype="multipart/form-data">
+          <label>Experimental log
+            <textarea name="log_text">{{ project.experimental.log_text }}</textarea>
+          </label>
+          <label>Optional experimental log upload
+            <input type="file" name="experimental_upload">
+          </label>
+          <div class="actions"><button type="submit">Save and continue</button></div>
+        </form>
+      </article>
+    {% elif step == 'materials' %}
+      <article class="card">
+        <h2>Template and guidelines</h2>
+        <form method="post" action="/projects/{{ project.project_id }}/save/materials" enctype="multipart/form-data">
+          <label>Conference guidelines text
+            <textarea name="guidelines_text">{{ project.guidelines.guidelines_text }}</textarea>
+          </label>
+          <label>Template `.tex`
+            <input type="file" name="template_upload">
+          </label>
+          <label>Guidelines upload
+            <input type="file" name="guidelines_upload">
+          </label>
+          <label>Optional figure uploads
+            <input type="file" name="figure_uploads" multiple>
+          </label>
+          <div class="actions"><button type="submit">Save and continue</button></div>
+        </form>
+      </article>
+    {% elif step == 'review' %}
+      <article class="card">
+        <h2>Review and launch</h2>
+        <p class="hint">The workspace is synchronized from the saved form state. Use the autonomous pipeline to run the end-to-end backend, then return here to retry or resume individual stages if needed.</p>
+        <div class="meta-list">
+          <div><strong>Workspace:</strong> <span class="mono">{{ project.workspace_path }}</span></div>
+          <div><strong>Aggregation source:</strong> {{ project.ingest.source_directory or "None" }}</div>
+          <div><strong>Latest validation:</strong> {{ (project.latest_validation or {}).get('summary', 'Not run yet') }}</div>
+        </div>
+        {% if input_panels %}
+          <div class="file-list" style="margin-top:16px;">
+            {% for item in input_panels %}
+              <div class="file-item">
+                <strong>{{ item.label }}</strong>
+                <span class="status {% if item.completed %}succeeded{% elif item.has_blockers %}failed{% else %}queued{% endif %}">
+                  {% if item.completed %}Ready{% elif item.has_blockers %}Needs attention{% else %}In progress{% endif %}
+                </span>
+                {% for message in item.messages %}
+                  <div class="muted" style="margin-top:8px;">{{ message }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <div class="actions">
+          <a class="button secondary" href="/projects/{{ project.project_id }}?step=inputs&panel={{ next_input_panel }}">Return to inputs</a>
+          <form method="post" action="/projects/{{ project.project_id }}/runs/start"><button type="submit">Start autonomous run</button></form>
+          {% if latest_run %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}?step=run">Open run dashboard</a>
+          {% endif %}
+        </div>
+      </article>
+    {% elif step == 'run' %}
+      <article class="card" {% if latest_run %}data-run-stream-url="{{ run_stream_url }}" data-last-updated="{{ latest_run.updated_at or '' }}"{% endif %}>
+        <h2>Run dashboard</h2>
+        <p class="hint">Codex is the primary orchestrator. Chrome for Testing is the default signed-in browser runtime through Chrome DevTools MCP, stable Chrome is the secondary DevTools fallback, Atlas remains available for tertiary browser-native actions, and the manual browser controls on this screen are for debug and override use only. Retry or resume only the stage that needs attention instead of restarting the full pipeline.</p>
+        {% if latest_run %}
+          <div class="meta-list">
+            <div><strong>Status:</strong> <span class="status {{ latest_run.status }}">{{ latest_run.status.replace('_', ' ').title() }}</span></div>
+            <div><strong>Current stage:</strong> {{ latest_run.current_stage }}</div>
+            <div><strong>Summary:</strong> {{ latest_run.summary or "No summary yet." }}</div>
+            <div><strong>Run id:</strong> <span class="mono">{{ latest_run.run_id }}</span></div>
+          </div>
+          {% if latest_run.attention_required %}
+            <p class="hint" style="margin-top:12px;">{{ latest_run.attention_required.message }}</p>
+          {% endif %}
+          {% if run_timeline_items %}
+            <div class="run-timeline">
+              <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+                <div>
+                  <strong>Stage timeline</strong>
+                  <div class="muted">Pipeline order, current focus, and quick timing for each stage.</div>
+                </div>
+                <span class="timeline-note">Plotting and literature run in parallel</span>
+              </div>
+              <div class="run-timeline-track" data-run-timeline-track="true">
+                {% for item in run_timeline_items %}
+                  <div class="timeline-stage" data-stage-name="{{ item.name }}">
+                    <div
+                      class="timeline-card {% if item.is_current %}current{% endif %} {% if item.is_parallel %}parallel{% endif %}"
+                      {% if item.is_current %}data-timeline-current="true" aria-current="step" tabindex="-1"{% endif %}
+                    >
+                      <div class="timeline-top">
+                        <span class="timeline-step">Step {{ loop.index }}</span>
+                        <span class="status {{ item.status }}">{{ item.status.replace('_', ' ').title() }}</span>
+                      </div>
+                      <div class="timeline-title">{{ item.label }}</div>
+                      <div class="timeline-detail">{{ item.detail or "Not started" }}</div>
+                      {% if item.is_parallel %}
+                        <span class="timeline-note">Parallel</span>
+                      {% elif item.is_current %}
+                        <span class="timeline-note">Current</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+          <div class="actions">
+            <form method="post" action="/projects/{{ project.project_id }}/runs/{{ latest_run.run_id }}/resume"><button class="secondary" type="submit">Resume run</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/runs/{{ latest_run.run_id }}/cancel"><button class="secondary" type="submit">Cancel run</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/open_chrome"><button class="secondary" type="submit">Open Chrome for Testing</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/run_literature"><button class="secondary" type="submit">Manual browser literature task</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/install_repair"><button class="secondary" type="submit">Install/repair Chrome MCP</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/launch_debug_helper"><button class="secondary" type="submit">Relaunch Chrome for Testing in Debug Mode</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/retry_attach"><button class="secondary" type="submit">Retry browser attach</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/atlas/open_home"><button class="secondary" type="submit">Open Atlas</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/atlas/run_literature"><button class="secondary" type="submit">Manual Atlas literature task</button></form>
+            {% if final_pdf_url %}
+              <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ final_pdf_url }}" target="_blank">Open final PDF</a>
+            {% endif %}
+          </div>
+          <div class="grid" style="margin-top:16px;">
+            <article class="card">
+              <h3>Final PDF status</h3>
+              {% if final_pdf_url %}
+                <p class="hint">The final PDF is available for direct inspection from the run screen.</p>
+                <div class="actions">
+                  <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ final_pdf_url }}" target="_blank">Open final PDF</a>
+                  <a class="button secondary" href="/projects/{{ project.project_id }}?step=outputs">Open outputs</a>
+                </div>
+              {% else %}
+                <p class="hint">No final PDF has been produced yet.</p>
+              {% endif %}
+            </article>
+            <article class="card">
+              <h3>Recent artifacts</h3>
+              {% if run_artifacts %}
+                <div class="file-list">
+                  {% for artifact in run_artifacts[:8] %}
+                    <div class="file-item"><strong>{{ artifact.label }}:</strong> <a href="/projects/{{ project.project_id }}/file?path={{ artifact.url_path }}" target="_blank">{{ artifact.path }}</a></div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="hint">No stage artifacts have been recorded yet.</p>
+              {% endif %}
+            </article>
+          </div>
+          <div class="stage-list" style="margin-top:16px;">
+            {% for stage_name, stage_payload in latest_run.stages.items() %}
+              <div class="stage-item">
+                <div class="stage-head">
+                  <div class="stage-copy">
+                    <strong>{{ stage_name.replace('_', ' ').title() }}</strong>
+                    <div class="muted">{{ stage_payload.summary or "No summary yet." }}</div>
+                  </div>
+                  <span class="status {{ stage_payload.status }}">{{ stage_payload.status.replace('_', ' ').title() }}</span>
+                </div>
+                <div class="stage-timing">
+                  {% for item in stage_payload.timing_items %}
+                    <span class="meta-pill"><span class="meta-pill-label">{{ item.label }}</span>{{ item.value }}</span>
+                  {% endfor %}
+                </div>
+                {% if stage_payload.attention_required %}
+                  <p class="hint" style="margin-top:10px;">{{ stage_payload.attention_required.message }}</p>
+                {% endif %}
+                {% if stage_payload.substeps %}
+                  <div class="file-list" style="margin-top:12px;">
+                    {% for substep in stage_payload.substeps %}
+                      <div class="file-item">
+                        <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+                          <div>
+                            <strong>{{ substep.name }}</strong>
+                            <div class="muted">{{ substep.summary or "No summary yet." }}</div>
+                            {% if substep.timing_label %}
+                              <div class="muted">{{ substep.timing_label }}</div>
+                            {% endif %}
+                          </div>
+                          <span class="status {{ substep.status }}">{{ substep.status.replace('_', ' ').title() }}</span>
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if stage_payload.loop_state %}
+                  <div class="meta-list" style="margin-top:12px;">
+                    <div><strong>Iteration cap:</strong> {{ stage_payload.loop_state.iteration_cap or "n/a" }}</div>
+                    <div><strong>Current iteration:</strong> {{ stage_payload.loop_state.current_iteration if stage_payload.loop_state.current_iteration is not none else "n/a" }}</div>
+                    <div><strong>Best iteration:</strong> {{ stage_payload.loop_state.best_iteration if stage_payload.loop_state.best_iteration is not none else "n/a" }}</div>
+                    <div><strong>Halt reason:</strong> {{ stage_payload.loop_state.halt_reason or "running" }}</div>
+                    <div><strong>Accepted iterations:</strong> {{ stage_payload.loop_state.accepted_iterations | join(', ') if stage_payload.loop_state.accepted_iterations else "n/a" }}</div>
+                  </div>
+                  {% if stage_payload.loop_state.trajectory_labels %}
+                    <div class="stage-timing" style="margin-top:10px;">
+                      {% for label in stage_payload.loop_state.trajectory_labels %}
+                        <span class="meta-pill">{{ label }}</span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                {% endif %}
+                <div class="actions">
+                  <form method="post" action="/projects/{{ project.project_id }}/runs/{{ latest_run.run_id }}/retry/{{ stage_name }}"><button class="secondary" type="submit">Retry {{ stage_name.replace('_', ' ') }}</button></form>
+                  <a class="button secondary" href="/api/projects/{{ project.project_id }}/runs/{{ latest_run.run_id }}/logs/{{ stage_name }}" target="_blank">Open stage log</a>
+                  <a class="button secondary" href="/api/projects/{{ project.project_id }}/runs/{{ latest_run.run_id }}/stages/{{ stage_name }}" target="_blank">Open stage detail</a>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="hint">No run has been started yet.</p>
+          <div class="actions">
+            <form method="post" action="/projects/{{ project.project_id }}/runs/start"><button type="submit">Start autonomous run</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/open_chrome"><button class="secondary" type="submit">Open Chrome for Testing</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/run_literature"><button class="secondary" type="submit">Manual browser literature task</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/install_repair"><button class="secondary" type="submit">Install/repair Chrome MCP</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/launch_debug_helper"><button class="secondary" type="submit">Relaunch Chrome for Testing in Debug Mode</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/browser/retry_attach"><button class="secondary" type="submit">Retry browser attach</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/atlas/open_home"><button class="secondary" type="submit">Open Atlas</button></form>
+            <form method="post" action="/projects/{{ project.project_id }}/atlas/run_literature"><button class="secondary" type="submit">Manual Atlas literature task</button></form>
+          </div>
+        {% endif %}
+      </article>
+    {% else %}
+      <article class="card">
+        <h2>Outputs</h2>
+        {% if artifacts %}
+          <div class="file-list">
+            {% for artifact in artifacts %}
+              <div class="file-item"><strong>{{ artifact.label }}:</strong> <a href="/projects/{{ project.project_id }}/file?path={{ artifact.url_path }}" target="_blank">{{ artifact.path }}</a></div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="hint">No output artifacts found yet.</p>
+        {% endif %}
+        <div class="card" style="margin-top:18px;">
+          <h3>Latest completion message</h3>
+          <pre class="mono log">{{ final_message or "No completion message saved yet." }}</pre>
+        </div>
+      </article>
+    {% endif %}
+  </div>
+
+  <aside class="stack">
+    <article class="card">
+      <h3>Integrations</h3>
+      <div class="integration-status-list">
+        <div class="integration-status-row">
+          <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.codex.available else 'failed' }}"></span>Codex</span>
+          <span class="integration-status-value {{ 'succeeded' if integrations.codex.available else 'failed' }}">{{ 'Reachable' if integrations.codex.available else 'Unreachable' }}</span>
+        </div>
+        <div class="integration-status-row">
+          <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.chrome_for_testing.installed else 'paused' }}"></span>Chrome for Testing</span>
+          <span class="integration-status-value {{ 'succeeded' if integrations.chrome_for_testing.installed else 'paused' }}">{{ 'Active' if integrations.chrome_for_testing.installed else 'Inactive' }}</span>
+        </div>
+        <div class="integration-status-row">
+          <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.chrome_stable.installed else 'paused' }}"></span>Stable Chrome</span>
+          <span class="integration-status-value {{ 'succeeded' if integrations.chrome_stable.installed else 'paused' }}">{{ 'Active' if integrations.chrome_stable.installed else 'Inactive' }}</span>
+        </div>
+        <div class="integration-status-row">
+          <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.atlas.available else 'failed' }}"></span>Atlas</span>
+          <span class="integration-status-value {{ 'succeeded' if integrations.atlas.available else 'failed' }}">{{ 'Reachable' if integrations.atlas.available else 'Unreachable' }}</span>
+        </div>
+        <div class="integration-status-row">
+          <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.semantic_scholar.configured else 'paused' }}"></span>Semantic Scholar</span>
+          <span class="integration-status-value {{ 'succeeded' if integrations.semantic_scholar.configured else 'paused' }}">{{ 'Active' if integrations.semantic_scholar.configured else 'Inactive' }}</span>
+        </div>
+        <div class="integration-status-row">
+          <span class="integration-status-label"><span class="status-dot {{ 'succeeded' if integrations.figure_backend.valid else 'paused' }}"></span>Figure backend</span>
+          <span class="integration-status-value {{ 'succeeded' if integrations.figure_backend.valid else 'paused' }}">{{ 'Active' if integrations.figure_backend.valid else 'Inactive' }}</span>
+        </div>
+      </div>
+      <div class="meta-list" style="margin-top:12px;">
+        <div><strong>Primary runtime:</strong> Chrome for Testing</div>
+        <div><strong>Chrome attach mode:</strong> {{ integrations.browser_adapter.attach_mode }}</div>
+        <div><strong>Atlas enabled:</strong> {{ 'Yes' if integrations.atlas.enabled else 'No' }}</div>
+        <div><strong>Atlas app:</strong> <span class="mono">{{ integrations.atlas.path }}</span></div>
+        <div><strong>Figure root:</strong> <span class="mono">{{ integrations.figure_backend.selected_root or 'Deterministic local renderers only' }}</span></div>
+        <div><strong>PaperBanana configured:</strong> {{ 'Yes' if integrations.paperbanana.configured else 'No' }}</div>
+        <div><strong>PaperVizAgent configured:</strong> {{ 'Yes' if integrations.papervizagent.configured else 'No' }}</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>Codex-global Chrome DevTools MCP</h3>
+      <div class="meta-list">
+        <div><strong>Registered:</strong> <span class="status {{ 'succeeded' if integrations.chrome.global_registered else 'failed' }}">{{ 'Yes' if integrations.chrome.global_registered else 'No' }}</span></div>
+        <div><strong>Wrapper command:</strong> {{ 'Ready' if integrations.chrome.wrapper_exists else 'Missing' }}</div>
+        <div><strong>Relaunch helper:</strong> {{ 'Ready' if integrations.chrome.helper_exists else 'Missing' }}</div>
+        <div><strong>Local built checkout:</strong> {{ 'Ready' if integrations.chrome.local_build_exists else 'Missing' }}</div>
+        <div><strong>Wrapper path:</strong> <span class="mono">{{ integrations.chrome.wrapper_path or 'Unavailable' }}</span></div>
+        <div><strong>Helper path:</strong> <span class="mono">{{ integrations.chrome.helper_path or 'Unavailable' }}</span></div>
+        <div><strong>Config path:</strong> <span class="mono">{{ integrations.chrome.config_path or 'Unavailable' }}</span></div>
+        <div><strong>Chrome for Testing app:</strong> <span class="mono">{{ integrations.chrome.debug_browser_app_path or 'Unavailable' }}</span></div>
+        <div><strong>Chrome for Testing debug URL:</strong> <span class="mono">{{ integrations.chrome.default_browser_url or 'Unavailable' }}</span></div>
+      </div>
+      <p class="hint" style="margin-top:12px;">PaperOrchestra uses this Codex-global MCP registration as its primary Chrome path. The wrapper is shared across Codex.app and other projects, and it resolves Chrome for Testing first so the signed-in persistent profile can be reused before falling back to stable Chrome.</p>
+    </article>
+
+    <article class="card">
+      <h3>Browser Adapter Status</h3>
+      <div class="meta-list">
+        <div><strong>Primary:</strong> <span class="mono">{{ integrations.browser_adapter.primary }}</span></div>
+        <div><strong>Strategy:</strong> {{ integrations.browser_adapter.strategy }}</div>
+        <div><strong>Attach mode:</strong> {{ integrations.browser_adapter.attach_mode }}</div>
+        <div><strong>Fallback order:</strong> {{ integrations.browser_adapter.fallback_order | join(' -> ') }}</div>
+        <div><strong>Chrome version:</strong> {{ integrations.chrome.version or 'Unknown' }}</div>
+        <div><strong>MCP runtime:</strong> {{ 'Ready' if integrations.chrome.mcp_available else 'Missing' }}</div>
+      </div>
+      <div class="meta-list" style="margin-top:12px;">
+        <div><strong>Chrome compatible:</strong> {{ 'Yes' if integrations.chrome.compatible else 'No' }}</div>
+        <div><strong>Plausibly attachable:</strong> {{ 'Yes' if integrations.chrome.plausibly_attachable else 'No' }}</div>
+        <div><strong>Atlas fallback enabled:</strong> {{ 'Yes' if integrations.browser_adapter.atlas_fallback_enabled else 'No' }}</div>
+        <div><strong>Local fallback enabled:</strong> {{ 'Yes' if integrations.browser_adapter.local_fallback_enabled else 'No' }}</div>
+      </div>
+      {% if browser_result %}
+        <div class="meta-list" style="margin-top:12px;">
+          <div><strong>Adapter:</strong> <span class="mono">{{ browser_result.adapter or 'unknown' }}</span></div>
+          <div><strong>Status:</strong> <span class="status {{ browser_result.status or 'queued' }}">{{ (browser_result.status or 'queued').replace('_', ' ').title() }}</span></div>
+          <div><strong>Browser runtime:</strong> {{ (browser_result.browser_runtime or 'unknown').replace('_', ' ').title() }}</div>
+          <div><strong>Attach transport:</strong> {{ browser_result.attach_transport or 'Unknown' }}</div>
+          <div><strong>Readiness state:</strong> {{ (browser_result.readiness_state or 'unknown').replace('_', ' ').title() }}</div>
+          <div><strong>Readiness message:</strong> {{ browser_result.readiness_message or 'No readiness message recorded.' }}</div>
+          <div><strong>ChatGPT tab reused:</strong> {{ 'Yes' if browser_result.tab_reused else 'No' }}</div>
+          <div><strong>Mode used:</strong> {{ browser_result.mode_used or 'Unknown' }}</div>
+          <div><strong>Profile root:</strong> <span class="mono">{{ browser_result.profile_root or 'Unavailable' }}</span></div>
+          <div><strong>Summary:</strong> {{ browser_result.summary or 'No browser summary recorded.' }}</div>
+          <div><strong>Fallback reason:</strong> {{ browser_result.fallback_reason or 'None' }}</div>
+          {% if browser_result.attention_required %}
+            <div><strong>Attention:</strong> {{ browser_result.attention_required.message }}</div>
+          {% endif %}
+          <div><strong>Chrome for Testing debug URL:</strong> <span class="mono">{{ integrations.chrome.default_browser_url or 'Unavailable' }}</span></div>
+        </div>
+        <div class="actions" style="margin-top:12px;">
+          {% if browser_result.result_url %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ browser_result.result_url }}" target="_blank">Open browser result</a>
+          {% endif %}
+          {% if browser_result.response_url %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ browser_result.response_url }}" target="_blank">Open browser response</a>
+          {% endif %}
+        </div>
+        {% if browser_result.screenshots %}
+          <div class="file-list" style="margin-top:12px;">
+            {% for item in browser_result.screenshots[:4] %}
+              <div class="file-item"><strong>{{ item.label }}:</strong> <a href="/projects/{{ project.project_id }}/file?path={{ item.url_path }}" target="_blank">{{ item.path }}</a></div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="hint">No browser task has been recorded for this project yet.</p>
+      {% endif %}
+    </article>
+
+    <article class="card">
+      <h3>Browser Runtimes</h3>
+      <div class="meta-list">
+        <div><strong>Chrome for Testing:</strong> {{ integrations.chrome_for_testing.version or 'Unknown version' }}</div>
+        <div><strong>Installed:</strong> {{ 'Yes' if integrations.chrome_for_testing.installed else 'No' }}</div>
+        <div><strong>Running:</strong> {{ 'Yes' if integrations.chrome_for_testing.running else 'No' }}</div>
+        <div><strong>Debuggable:</strong> {{ 'Yes' if integrations.chrome_for_testing.debuggable else 'No' }}</div>
+        <div><strong>Profile:</strong> <span class="mono">{{ integrations.chrome_for_testing.profile_root or 'Unavailable' }}</span></div>
+        <div><strong>Browser URL:</strong> <span class="mono">{{ integrations.chrome_for_testing.browser_url or 'Unavailable' }}</span></div>
+        <div><strong>Active account:</strong> {{ integrations.chrome_for_testing.account_label or ('Present' if integrations.chrome_for_testing.account_present else 'Not detected') }}</div>
+      </div>
+      <div class="meta-list" style="margin-top:12px;">
+        <div><strong>Stable Chrome:</strong> {{ integrations.chrome_stable.version or 'Unknown version' }}</div>
+        <div><strong>Installed:</strong> {{ 'Yes' if integrations.chrome_stable.installed else 'No' }}</div>
+        <div><strong>Running:</strong> {{ 'Yes' if integrations.chrome_stable.running else 'No' }}</div>
+        <div><strong>Debuggable:</strong> {{ 'Yes' if integrations.chrome_stable.debuggable else 'No' }}</div>
+        <div><strong>Profile:</strong> <span class="mono">{{ integrations.chrome_stable.profile_root or 'Unavailable' }}</span></div>
+        <div><strong>Browser URL:</strong> <span class="mono">{{ integrations.chrome_stable.browser_url or 'Unavailable' }}</span></div>
+        <div><strong>Relaunch required:</strong> {{ 'Yes' if integrations.chrome_for_testing.relaunch_required else 'No' }}</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>Atlas Status</h3>
+      {% if atlas_result %}
+        <div class="meta-list">
+          <div><strong>Mode used:</strong> {{ atlas_result.mode_used or 'Unknown' }}</div>
+          <div><strong>Deep Research verified:</strong> {{ 'Yes' if atlas_result.deep_research_enabled else 'No' }}</div>
+          <div><strong>Verification method:</strong> {{ atlas_result.verification_method or 'n/a' }}</div>
+          <div><strong>Summary:</strong> {{ atlas_result.summary or 'No summary recorded.' }}</div>
+          <div><strong>Fallback reason:</strong> {{ atlas_result.fallback_reason or 'None' }}</div>
+        </div>
+        <div class="actions" style="margin-top:12px;">
+          {% if atlas_result.result_url %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ atlas_result.result_url }}" target="_blank">Open Atlas result</a>
+          {% endif %}
+          {% if atlas_result.response_url %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/file?path={{ atlas_result.response_url }}" target="_blank">Open Atlas response</a>
+          {% endif %}
+        </div>
+        {% if atlas_result.screenshots %}
+          <div class="file-list" style="margin-top:12px;">
+            {% for item in atlas_result.screenshots[:4] %}
+              <div class="file-item"><strong>{{ item.label }}:</strong> <a href="/projects/{{ project.project_id }}/file?path={{ item.url_path }}" target="_blank">{{ item.path }}</a></div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="hint">No Atlas task has been recorded for this project yet.</p>
+      {% endif %}
+    </article>
+
+    <article class="card">
+      <h3>Workspace</h3>
+      <div class="meta-list">
+        <div><strong>Path:</strong> <span class="mono">{{ project.workspace_path }}</span></div>
+        <div><strong>Wizard step:</strong> {{ project.wizard_step }}</div>
+        <div><strong>Last status:</strong> <span class="status {{ project.last_status }}">{{ project.last_status.replace('_', ' ').title() }}</span></div>
+      </div>
+    </article>
+  </aside>
+</section>
+{% endblock %}

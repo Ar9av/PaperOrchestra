@@ -1,0 +1,56 @@
+name: Local-only acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "30 9 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  local-only-acceptance:
+    name: Acceptance walkthrough
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m playwright install chromium
+
+      - name: Run local-only acceptance walkthrough
+        run: |
+          OUT="$RUNNER_TEMP/paper-orchestra-acceptance"
+          DATA="$RUNNER_TEMP/paper-orchestra-acceptance-data"
+          mkdir -p "$OUT" "$DATA"
+          .venv/bin/python scripts/acceptance_walkthrough.py \
+            --local-only \
+            --host 127.0.0.1 \
+            --port 0 \
+            --data-root "$DATA" \
+            --output-root "$OUT" \
+            --forced-failure-stage compile \
+            --keep-artifacts-on-failure
+
+      - name: Upload acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-only-acceptance
+          path: ${{ runner.temp }}/paper-orchestra-acceptance
+          if-no-files-found: warn

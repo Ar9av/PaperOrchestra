@@ -1,0 +1,622 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0862C47BF086045B5A6A70DB /* Cards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF17F0345C50D4FFCA3EE42 /* Cards.swift */; };
+		10C32D8F6140E7D6F23B9E2A /* PaperOrchestraLauncherCore in Frameworks */ = {isa = PBXBuildFile; productRef = F7C9A07438207C3AA5A556CA /* PaperOrchestraLauncherCore */; };
+		1F063833D84972853A1E59C5 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C163D55CB42BAB169E4F2F0 /* Typography.swift */; };
+		201111111111111111111111 /* StatusComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111111 /* StatusComponents.swift */; };
+		201111111111111111111112 /* AppSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111112 /* AppSidebarView.swift */; };
+		201111111111111111111113 /* ContextInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111113 /* ContextInspectorView.swift */; };
+		201111111111111111111114 /* InputsWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111114 /* InputsWorkspaceView.swift */; };
+		201111111111111111111115 /* OutputsWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111115 /* OutputsWorkspaceView.swift */; };
+		201111111111111111111116 /* ReviewWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111116 /* ReviewWorkspaceView.swift */; };
+		20111111111111111111111B /* RunDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30111111111111111111111B /* RunDiagnosticsView.swift */; };
+		201111111111111111111117 /* RunWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111117 /* RunWorkspaceView.swift */; };
+		201111111111111111111118 /* SetupWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111118 /* SetupWorkspaceView.swift */; };
+		201111111111111111111119 /* WorkspaceRouterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301111111111111111111119 /* WorkspaceRouterView.swift */; };
+		20111111111111111111111A /* WorkspaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30111111111111111111111A /* WorkspaceSelection.swift */; };
+		2B7EE3DE30EC0D0636A0BF4B /* PaperOrchestraLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2910B2E43F641E53FD1F19 /* PaperOrchestraLauncherApp.swift */; };
+		3A7739CF694EE016500F4A29 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 276CA8D8D7D2A6D44FA3BB2D /* AppIcon.icon */; };
+		4398B13E0DB5611953E7399A /* SemanticColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CAD973B6C4B2B149DD66DFB /* SemanticColors.swift */; };
+		4EE89786ABD48B6F0139EFA4 /* EmptyLoadingErrorStates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5275D1E9893F734DDCC377C9 /* EmptyLoadingErrorStates.swift */; };
+		588E8E84142B535AD6FF100C /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19F0B9FC5553D1EE26B468FC /* RootView.swift */; };
+		5EEFC9762F344EAC86734365 /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30C40285E7314A60D4C5E5C3 /* Motion.swift */; };
+		66981C4FF8BF4F439A7898A8 /* Surfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BFA15718D24854C8B71DB9D /* Surfaces.swift */; };
+		6FF1272AB62FC16F8481F795 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4908E26A83B72B7EDE36C0F1 /* DesignTokens.swift */; };
+		7E1000000000000000000001 /* NativeXcodeProjectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1000000000000000000002 /* NativeXcodeProjectTests.swift */; };
+		A4C59280D9A3D2FFACAE2B13 /* UserNotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACDE83D0BF36DA35A06FFF8 /* UserNotificationScheduler.swift */; };
+		C8C58F0AE2F21030F7BD7EE4 /* Buttons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51023D390237FCDB3373AE58 /* Buttons.swift */; };
+		C9C8E200376A4EB812BDB999 /* LauncherViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC29FE94C72D7905C23F0D6 /* LauncherViewModel.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7E1000000000000000000004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DBEA5481DD55A5D6A0E47D20 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9F0CB4E2B89A9466B877404E;
+			remoteInfo = PaperOrchestra;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0FF17F0345C50D4FFCA3EE42 /* Cards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cards.swift; sourceTree = "<group>"; };
+		19F0B9FC5553D1EE26B468FC /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		301111111111111111111111 /* StatusComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusComponents.swift; sourceTree = "<group>"; };
+		301111111111111111111112 /* AppSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSidebarView.swift; sourceTree = "<group>"; };
+		301111111111111111111113 /* ContextInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextInspectorView.swift; sourceTree = "<group>"; };
+		301111111111111111111114 /* InputsWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputsWorkspaceView.swift; sourceTree = "<group>"; };
+		301111111111111111111115 /* OutputsWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputsWorkspaceView.swift; sourceTree = "<group>"; };
+		301111111111111111111116 /* ReviewWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWorkspaceView.swift; sourceTree = "<group>"; };
+		30111111111111111111111B /* RunDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunDiagnosticsView.swift; sourceTree = "<group>"; };
+		301111111111111111111117 /* RunWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunWorkspaceView.swift; sourceTree = "<group>"; };
+		301111111111111111111118 /* SetupWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupWorkspaceView.swift; sourceTree = "<group>"; };
+		301111111111111111111119 /* WorkspaceRouterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRouterView.swift; sourceTree = "<group>"; };
+		30111111111111111111111A /* WorkspaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSelection.swift; sourceTree = "<group>"; };
+		276CA8D8D7D2A6D44FA3BB2D /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		30C40285E7314A60D4C5E5C3 /* Motion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Motion.swift; sourceTree = "<group>"; };
+		4908E26A83B72B7EDE36C0F1 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
+		4BFA15718D24854C8B71DB9D /* Surfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Surfaces.swift; sourceTree = "<group>"; };
+		51023D390237FCDB3373AE58 /* Buttons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Buttons.swift; sourceTree = "<group>"; };
+		5275D1E9893F734DDCC377C9 /* EmptyLoadingErrorStates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyLoadingErrorStates.swift; sourceTree = "<group>"; };
+		5AC29FE94C72D7905C23F0D6 /* LauncherViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherViewModel.swift; sourceTree = "<group>"; };
+		5CAD973B6C4B2B149DD66DFB /* SemanticColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticColors.swift; sourceTree = "<group>"; };
+		7E1000000000000000000002 /* NativeXcodeProjectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeXcodeProjectTests.swift; sourceTree = "<group>"; };
+		7E1000000000000000000003 /* PaperOrchestraXcodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PaperOrchestraXcodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7C163D55CB42BAB169E4F2F0 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
+		AC5D546581515D95F1316083 /* PaperOrchestra.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PaperOrchestra.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9B36F409772C04507043C7B /* paper-orchestra */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "paper-orchestra"; path = .; sourceTree = SOURCE_ROOT; };
+		BE2910B2E43F641E53FD1F19 /* PaperOrchestraLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperOrchestraLauncherApp.swift; sourceTree = "<group>"; };
+		CACDE83D0BF36DA35A06FFF8 /* UserNotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserNotificationScheduler.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D196CE1D2B9AE59028540FCA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				10C32D8F6140E7D6F23B9E2A /* PaperOrchestraLauncherCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E1000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00B260F15F808DBF7BB010C5 /* AppDesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				51023D390237FCDB3373AE58 /* Buttons.swift */,
+				0FF17F0345C50D4FFCA3EE42 /* Cards.swift */,
+				4908E26A83B72B7EDE36C0F1 /* DesignTokens.swift */,
+				5275D1E9893F734DDCC377C9 /* EmptyLoadingErrorStates.swift */,
+				30C40285E7314A60D4C5E5C3 /* Motion.swift */,
+				5CAD973B6C4B2B149DD66DFB /* SemanticColors.swift */,
+				301111111111111111111111 /* StatusComponents.swift */,
+				4BFA15718D24854C8B71DB9D /* Surfaces.swift */,
+				7C163D55CB42BAB169E4F2F0 /* Typography.swift */,
+			);
+			path = AppDesignSystem;
+			sourceTree = "<group>";
+		};
+		08C27A2AA77E9F365207330D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AC5D546581515D95F1316083 /* PaperOrchestra.app */,
+				7E1000000000000000000003 /* PaperOrchestraXcodeTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		0997B99D1DA37C3477A5EA4E /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				301111111111111111111112 /* AppSidebarView.swift */,
+				301111111111111111111113 /* ContextInspectorView.swift */,
+				301111111111111111111114 /* InputsWorkspaceView.swift */,
+				301111111111111111111115 /* OutputsWorkspaceView.swift */,
+				301111111111111111111116 /* ReviewWorkspaceView.swift */,
+				19F0B9FC5553D1EE26B468FC /* RootView.swift */,
+				30111111111111111111111B /* RunDiagnosticsView.swift */,
+				301111111111111111111117 /* RunWorkspaceView.swift */,
+				301111111111111111111118 /* SetupWorkspaceView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		0997B99D1DA37C3477A5EA4F /* Workspace */ = {
+			isa = PBXGroup;
+			children = (
+				301111111111111111111119 /* WorkspaceRouterView.swift */,
+				30111111111111111111111A /* WorkspaceSelection.swift */,
+			);
+			path = Workspace;
+			sourceTree = "<group>";
+		};
+		27C6C36E424E69E623561BFA /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				276CA8D8D7D2A6D44FA3BB2D /* AppIcon.icon */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		5AA62C855C6EE2EF8AC2BC1E /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				CACDE83D0BF36DA35A06FFF8 /* UserNotificationScheduler.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		5B20582459281B49CC670BF6 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				993DC1F4C53962087A4DAC1F /* PaperOrchestraLauncherApp */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		81F4F2FA31436BC6E0064199 = {
+			isa = PBXGroup;
+			children = (
+				CCE3ED4D4FE5CB329FAA9143 /* Packages */,
+				5B20582459281B49CC670BF6 /* Sources */,
+				7E1000000000000000000009 /* tests */,
+				08C27A2AA77E9F365207330D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		993DC1F4C53962087A4DAC1F /* PaperOrchestraLauncherApp */ = {
+			isa = PBXGroup;
+			children = (
+				5AC29FE94C72D7905C23F0D6 /* LauncherViewModel.swift */,
+				BE2910B2E43F641E53FD1F19 /* PaperOrchestraLauncherApp.swift */,
+				00B260F15F808DBF7BB010C5 /* AppDesignSystem */,
+				27C6C36E424E69E623561BFA /* Resources */,
+				5AA62C855C6EE2EF8AC2BC1E /* Support */,
+				0997B99D1DA37C3477A5EA4E /* Views */,
+				0997B99D1DA37C3477A5EA4F /* Workspace */,
+			);
+			path = PaperOrchestraLauncherApp;
+			sourceTree = "<group>";
+		};
+		CCE3ED4D4FE5CB329FAA9143 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				B9B36F409772C04507043C7B /* paper-orchestra */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		7E1000000000000000000009 /* tests */ = {
+			isa = PBXGroup;
+			children = (
+				7E1000000000000000000010 /* PaperOrchestraXcodeTests */,
+			);
+			path = tests;
+			sourceTree = "<group>";
+		};
+		7E1000000000000000000010 /* PaperOrchestraXcodeTests */ = {
+			isa = PBXGroup;
+			children = (
+				7E1000000000000000000002 /* NativeXcodeProjectTests.swift */,
+			);
+			path = PaperOrchestraXcodeTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9F0CB4E2B89A9466B877404E /* PaperOrchestra */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 95986F5C7F8DA941855E0CB3 /* Build configuration list for PBXNativeTarget "PaperOrchestra" */;
+			buildPhases = (
+				66E63D1F6453C7952980858D /* Sources */,
+				E3EF7A4669ED18962A6C33F9 /* Resources */,
+				D196CE1D2B9AE59028540FCA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PaperOrchestra;
+			packageProductDependencies = (
+				F7C9A07438207C3AA5A556CA /* PaperOrchestraLauncherCore */,
+			);
+			productName = PaperOrchestra;
+			productReference = AC5D546581515D95F1316083 /* PaperOrchestra.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7E1000000000000000000011 /* PaperOrchestraXcodeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7E1000000000000000000014 /* Build configuration list for PBXNativeTarget "PaperOrchestraXcodeTests" */;
+			buildPhases = (
+				7E1000000000000000000006 /* Sources */,
+				7E1000000000000000000007 /* Resources */,
+				7E1000000000000000000008 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7E1000000000000000000005 /* PBXTargetDependency */,
+			);
+			name = PaperOrchestraXcodeTests;
+			productName = PaperOrchestraXcodeTests;
+			productReference = 7E1000000000000000000003 /* PaperOrchestraXcodeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DBEA5481DD55A5D6A0E47D20 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			TargetAttributes = {
+					7E1000000000000000000011 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 9F0CB4E2B89A9466B877404E;
+					};
+				};
+			};
+			buildConfigurationList = 88B86DBBA231D0C6407FD9A1 /* Build configuration list for PBXProject "PaperOrchestra" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 81F4F2FA31436BC6E0064199;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				855CAF8A6B98FE12FD07D37A /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 08C27A2AA77E9F365207330D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9F0CB4E2B89A9466B877404E /* PaperOrchestra */,
+				7E1000000000000000000011 /* PaperOrchestraXcodeTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E3EF7A4669ED18962A6C33F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3A7739CF694EE016500F4A29 /* AppIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E1000000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		66E63D1F6453C7952980858D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C8C58F0AE2F21030F7BD7EE4 /* Buttons.swift in Sources */,
+				0862C47BF086045B5A6A70DB /* Cards.swift in Sources */,
+				6FF1272AB62FC16F8481F795 /* DesignTokens.swift in Sources */,
+				4EE89786ABD48B6F0139EFA4 /* EmptyLoadingErrorStates.swift in Sources */,
+				201111111111111111111112 /* AppSidebarView.swift in Sources */,
+				C9C8E200376A4EB812BDB999 /* LauncherViewModel.swift in Sources */,
+				201111111111111111111113 /* ContextInspectorView.swift in Sources */,
+				201111111111111111111114 /* InputsWorkspaceView.swift in Sources */,
+				5EEFC9762F344EAC86734365 /* Motion.swift in Sources */,
+				201111111111111111111115 /* OutputsWorkspaceView.swift in Sources */,
+				2B7EE3DE30EC0D0636A0BF4B /* PaperOrchestraLauncherApp.swift in Sources */,
+				201111111111111111111116 /* ReviewWorkspaceView.swift in Sources */,
+				588E8E84142B535AD6FF100C /* RootView.swift in Sources */,
+				20111111111111111111111B /* RunDiagnosticsView.swift in Sources */,
+				201111111111111111111117 /* RunWorkspaceView.swift in Sources */,
+				4398B13E0DB5611953E7399A /* SemanticColors.swift in Sources */,
+				201111111111111111111118 /* SetupWorkspaceView.swift in Sources */,
+				201111111111111111111111 /* StatusComponents.swift in Sources */,
+				66981C4FF8BF4F439A7898A8 /* Surfaces.swift in Sources */,
+				1F063833D84972853A1E59C5 /* Typography.swift in Sources */,
+				A4C59280D9A3D2FFACAE2B13 /* UserNotificationScheduler.swift in Sources */,
+				201111111111111111111119 /* WorkspaceRouterView.swift in Sources */,
+				20111111111111111111111A /* WorkspaceSelection.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E1000000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E1000000000000000000001 /* NativeXcodeProjectTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7E1000000000000000000005 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9F0CB4E2B89A9466B877404E /* PaperOrchestra */;
+			targetProxy = 7E1000000000000000000004 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		05099163E96B194C29ADF395 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = PaperOrchestra;
+				INFOPLIST_KEY_CFBundleName = PaperOrchestra;
+				INFOPLIST_KEY_CFBundleShortVersionString = 0.1.0;
+				INFOPLIST_KEY_CFBundleVersion = 1;
+				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paperorchestra.launcher;
+				PRODUCT_NAME = PaperOrchestra;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		55783C09CEEA5669BDBFF260 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		88F4593F4802F259D32432FF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = PaperOrchestra;
+				INFOPLIST_KEY_CFBundleName = PaperOrchestra;
+				INFOPLIST_KEY_CFBundleShortVersionString = 0.1.0;
+				INFOPLIST_KEY_CFBundleVersion = 1;
+				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paperorchestra.launcher;
+				PRODUCT_NAME = PaperOrchestra;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		941AAF70BE1D7C6349B00C95 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		7E1000000000000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paperorchestra.launcher.xcodetests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		7E1000000000000000000013 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paperorchestra.launcher.xcodetests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		88B86DBBA231D0C6407FD9A1 /* Build configuration list for PBXProject "PaperOrchestra" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				88F4593F4802F259D32432FF /* Debug */,
+				05099163E96B194C29ADF395 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		95986F5C7F8DA941855E0CB3 /* Build configuration list for PBXNativeTarget "PaperOrchestra" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				941AAF70BE1D7C6349B00C95 /* Debug */,
+				55783C09CEEA5669BDBFF260 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7E1000000000000000000014 /* Build configuration list for PBXNativeTarget "PaperOrchestraXcodeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7E1000000000000000000012 /* Debug */,
+				7E1000000000000000000013 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		855CAF8A6B98FE12FD07D37A /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F7C9A07438207C3AA5A556CA /* PaperOrchestraLauncherCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PaperOrchestraLauncherCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DBEA5481DD55A5D6A0E47D20 /* Project object */;
+}

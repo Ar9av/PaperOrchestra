@@ -234,7 +234,8 @@ rules).
 ```bash
 git clone <this repo> ~/paper-orchestra
 cd ~/paper-orchestra
-pip install -r requirements.txt   # deterministic helpers only
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
 Then symlink the skills you want into your host's skill directory:
@@ -258,6 +259,176 @@ done
 ```
 
 For Cursor / Antigravity / Cline / Aider, see `skills/paper-orchestra/references/host-integration.md`.
+
+## Local browser GUI
+
+If you want a restart-safe local web app for collecting inputs, running the
+full Codex-first pipeline, monitoring live stage progress, retrying failed
+stages, and opening artifacts from the browser, use the local GUI:
+
+```bash
+cd ~/paper-orchestra
+.venv/bin/python scripts/launch_gui.py
+```
+
+### Native launcher app
+
+If you want PaperOrchestra to start like a normal desktop product, build and
+install the native launcher app:
+
+```bash
+cd ~/paper-orchestra
+/bin/bash scripts/install_native_launcher.sh --open
+```
+
+That stages and installs `PaperOrchestra.app`, a native macOS wrapper around
+the supported FastAPI control room. After installation, the primary human
+entrypoint is to double click `PaperOrchestra.app` from `/Applications/`.
+
+Useful native-launcher commands:
+
+```bash
+/bin/bash scripts/build_native_launcher.sh
+/bin/bash scripts/install_native_launcher.sh --system
+./script/build_and_run.sh
+```
+
+The supported UI is the FastAPI control room in `gui_app.web`, launched by
+`scripts/launch_gui.py`. This starts a local server at
+`http://127.0.0.1:8765`, opens it in your browser, and stores GUI state under
+`~/.paperorchestra/gui/`.
+
+The supported browser lifecycle is:
+
+1. create a project
+2. complete the `setup -> inputs -> review -> run -> outputs` flow
+3. start the autonomous pipeline
+4. monitor, retry, or resume from the run dashboard
+5. open the final PDF and other artifacts from the app
+
+The FastAPI control room writes the same `workspace/inputs/*` files the
+PaperOrchestra pipeline already expects, persists every run as `state.json`
+plus `events.jsonl`, and exposes a run dashboard with:
+
+- live stage status updates via SSE
+- stage retry, resume, and cancel controls
+- Atlas Deep Research status and artifacts
+- manual Atlas controls as advanced debug/override actions inside the supported app
+- final PDF and recent artifact links directly from the run screen
+
+Useful launcher flags:
+
+```bash
+.venv/bin/python scripts/launch_gui.py --no-browser --port 8877
+.venv/bin/python scripts/launch_gui.py --data-root /tmp/paper-orchestra-gui
+```
+
+The launcher now waits for `/health` before reporting success, so a returned
+PID means the FastAPI app is actually reachable.
+
+### Global Chrome DevTools MCP
+
+PaperOrchestra now treats Chrome DevTools MCP as a **Codex-global** browser
+capability instead of a repo-local shim. Install or repair that shared setup
+with:
+
+```bash
+cd ~/paper-orchestra
+.venv/bin/python scripts/install_chrome_devtools_mcp.py
+```
+
+That command writes a managed `chrome-devtools` MCP entry into
+`~/.codex/config.toml`, installs the wrapper and dedicated debug-profile
+helpers under `~/.codex/bin`, and verifies the setup with `codex mcp list`.
+
+The supported browser strategy is:
+
+1. primary: attach to an already-debuggable Chrome for Testing session that
+   uses the persistent signed-in Chrome for Testing profile
+2. secondary: attach to an already-debuggable stable Chrome session
+3. cold-start recovery: launch the Chrome for Testing debug helper, then wait
+   for a usable ChatGPT workspace before submitting the browser task
+4. tertiary browser fallback: Atlas inside the FastAPI control room
+
+PaperOrchestra does not treat DevTools reachability as proof that ChatGPT is
+usable. Before a literature task submits to ChatGPT, the Chrome adapter now
+warms up the selected browser runtime, reuses a restored ChatGPT tab when
+available, and records a typed readiness state such as `composer_ready`,
+`challenge_blocked`, or `auth_blocked`. If ChatGPT is behind a challenge or
+login wall, the run pauses with a concrete recovery message instead of silently
+falling through to Atlas.
+
+### Acceptance walkthrough
+
+To validate the supported FastAPI control-room path end to end, use the
+repo-local acceptance harness:
+
+```bash
+cd ~/paper-orchestra
+.venv/bin/python scripts/acceptance_walkthrough.py
+```
+
+The default walkthrough launches the app through `scripts/launch_gui.py`,
+creates a fresh project from `examples/minimal/`, starts an autonomous run,
+forces one compile-stage failure, retries only that stage, verifies that
+completed sibling stages were not rerun, and fetches the final PDF. For
+determinism, the walkthrough uses acceptance-only Atlas adapter fixtures plus
+a seeded local Semantic Scholar cache while still exercising the real
+literature-stage citation-pool build, FastAPI UI, and orchestrator end to end.
+
+Useful flags:
+
+```bash
+.venv/bin/python scripts/acceptance_walkthrough.py --forced-failure-stage compile
+.venv/bin/python scripts/acceptance_walkthrough.py --forced-failure-stage none
+.venv/bin/python scripts/acceptance_walkthrough.py --local-only
+.venv/bin/python scripts/acceptance_walkthrough.py --output-root /tmp/paper-orchestra-acceptance
+.venv/bin/python scripts/acceptance_walkthrough.py --keep-artifacts-on-failure
+```
+
+Use `--local-only` for the closeout-safe fixture path. It disables Chrome and
+Atlas, keeps acceptance fixtures enabled, seeds the local Semantic Scholar
+cache in strict mode without OpenAlex fallback, and forces Codex-backed stages
+through deterministic local fallbacks.
+The walkthrough still uses Playwright's bundled headless Chromium to exercise
+the local FastAPI UI; it does not launch Chrome DevTools MCP or a signed-in
+Chrome session.
+
+The harness writes a non-tracked summary plus copied run artifacts under
+`output/acceptance/` by default. Browser automation uses Python Playwright in
+the repo virtualenv; if the dependency or Chromium is missing locally, install
+them with:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium
+```
+
+### Legacy compatibility surfaces
+
+Two files remain in-repo only for temporary compatibility and reference:
+
+- `gui_app.server`
+- `gui_app.handoff`
+
+They are legacy compatibility code and are not the supported UI. New feature
+work, browser walkthroughs, screenshots, and acceptance coverage should target
+`gui_app.web` plus `scripts/launch_gui.py`.
+
+### Atlas bridge CLI
+
+If you want a direct terminal bridge that submits a prompt to ChatGPT Atlas,
+waits for a non-empty response, and prints the captured text back to stdout,
+use:
+
+```bash
+cd ~/paper-orchestra
+python3 scripts/atlas_bridge.py --prompt-file /absolute/path/to/prompt.txt
+```
+
+For machine-readable output, add `--json`. The bridge assumes the caller and
+`ChatGPT Atlas.app` already have macOS Accessibility and Screen Recording
+permissions, and it does not require any additional shell flags.
 
 ## Optional integrations
 
