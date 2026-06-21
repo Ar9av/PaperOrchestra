@@ -242,7 +242,7 @@ public struct LauncherNativeRunActionClient: LauncherRunActionPerforming {
     }
 
     public func startRun(settings: LauncherSettings, projectID: String) async throws {
-        let validation = try await inputClient.fetchInputStatus(settings: settings, projectID: projectID)
+        let validation = try await inputClient.fetchInputStatus(settings: settings, backendURL: nil, projectID: projectID)
         guard !validation.hasBlockers else {
             throw LauncherError.processLaunchFailed(validation.summary)
         }

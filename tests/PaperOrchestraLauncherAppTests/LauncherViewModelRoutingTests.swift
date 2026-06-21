@@ -185,6 +185,70 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.latestInputActionError, "Complete Idea before starting a run.")
     }
 
+    func test_inputActionsRouteThroughBackendWhenReachableAndFallbackWhenOffline() async throws {
+        let project = LauncherProjectSnapshot(
+            id: "project-inputs",
+            title: "Input Project",
+            wizardStep: "inputs",
+            lastStatus: "draft",
+            workspacePath: "/tmp/project-inputs",
+            latestRunID: nil,
+            updatedAt: "2026-06-21T00:00:00+00:00"
+        )
+        let reachableInputClient = RecordingInputActionClient()
+        let reachableViewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: FixtureWorkspaceProvider(
+                snapshots: [
+                    FixtureWorkspaceProvider.makeProjectSnapshot(
+                        selectedProject: project,
+                        inputs: FixtureWorkspaceProvider.makeIncompleteInputs(),
+                        backendReachable: true
+                    )
+                ]
+            ),
+            notificationScheduler: NoopNotificationScheduler(),
+            inputActionClient: reachableInputClient
+        )
+
+        await reachableViewModel.refreshSelectedProjectInputs()
+        await reachableViewModel.validateSelectedInput(.idea)
+        await reachableViewModel.saveInput(.idea, request: .form(["editor_mode": "raw", "raw_markdown": "Updated"]))
+        await reachableViewModel.removeFigure(at: "/tmp/figure.png")
+
+        let backendURL = LauncherSettings.defaultValue().backendURL.absoluteString
+        let reachableCalls = await reachableInputClient.recordedCalls()
+        XCTAssertEqual(reachableCalls, [
+            .refresh(backendURL),
+            .validate(backendURL, .idea),
+            .save(backendURL, .idea),
+            .removeFigure(backendURL),
+        ])
+
+        let offlineInputClient = RecordingInputActionClient()
+        let offlineViewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: FixtureWorkspaceProvider(
+                snapshots: [
+                    FixtureWorkspaceProvider.makeProjectSnapshot(
+                        selectedProject: project,
+                        inputs: FixtureWorkspaceProvider.makeIncompleteInputs(),
+                        backendReachable: false
+                    )
+                ]
+            ),
+            notificationScheduler: NoopNotificationScheduler(),
+            inputActionClient: offlineInputClient
+        )
+
+        await offlineViewModel.saveInput(.idea, request: .form(["editor_mode": "raw", "raw_markdown": "Offline"]))
+
+        let offlineCalls = await offlineInputClient.recordedCalls()
+        XCTAssertEqual(offlineCalls, [.save(nil, .idea)])
+    }
+
     func test_refreshDelayUsesIdleCadenceWhenBackendIsHealthyAndNoRunIsSelected() {
         let snapshot = FixtureWorkspaceProvider.makeSnapshot(
             selectedProjectID: "project-2",
@@ -582,7 +646,8 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
 
     static func makeProjectSnapshot(
         selectedProject: LauncherProjectSnapshot,
-        inputs: LauncherProjectInputsSnapshot? = nil
+        inputs: LauncherProjectInputsSnapshot? = nil,
+        backendReachable: Bool = true
     ) -> LauncherWorkspaceSnapshot {
         LauncherWorkspaceSnapshot(
             projects: [selectedProject],
@@ -591,7 +656,7 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
             selectedRun: nil,
             selectedStage: nil,
             integrations: LauncherIntegrationSnapshot(
-                backendReachable: true,
+                backendReachable: backendReachable,
                 repoConfigured: true,
                 pythonConfigured: true,
                 dataRoot: "/tmp/gui",
@@ -656,6 +721,45 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
 
 private struct NoopNotificationScheduler: LauncherNotificationScheduling {
     func notify(title: String, body: String) async {}
+}
+
+private actor RecordingInputActionClient: LauncherInputActionPerforming {
+    enum Call: Equatable {
+        case refresh(String?)
+        case validate(String?, LauncherInputName)
+        case save(String?, LauncherInputName)
+        case removeFigure(String?)
+    }
+
+    private(set) var calls: [Call] = []
+
+    func recordedCalls() -> [Call] {
+        calls
+    }
+
+    func fetchInputStatus(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws -> LauncherInputStatusResponse {
+        calls.append(.refresh(backendURL?.absoluteString))
+        return LauncherInputStatusResponse(
+            status: "validated",
+            summary: "ready",
+            updatedAt: "2026-06-21T00:01:00+00:00",
+            hasBlockers: false,
+            inputs: [:]
+        )
+    }
+
+    func validateInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot {
+        calls.append(.validate(backendURL?.absoluteString, inputName))
+        return LauncherInputValidationSnapshot(messages: [], hasBlockers: false, completed: true)
+    }
+
+    func saveInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName, request: LauncherInputSaveRequest) async throws {
+        calls.append(.save(backendURL?.absoluteString, inputName))
+    }
+
+    func removeFigure(settings: LauncherSettings, backendURL: URL?, projectID: String, figurePath: String) async throws {
+        calls.append(.removeFigure(backendURL?.absoluteString))
+    }
 }
 
 private final class RecordingProjectActionClient: LauncherProjectActionPerforming, @unchecked Sendable {

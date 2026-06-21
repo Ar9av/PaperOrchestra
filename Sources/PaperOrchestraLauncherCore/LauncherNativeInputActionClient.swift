@@ -1,14 +1,204 @@
 import Foundation
 
 public protocol LauncherInputActionPerforming: Sendable {
-    func fetchInputStatus(settings: LauncherSettings, projectID: String) async throws -> LauncherInputStatusResponse
-    func validateInput(settings: LauncherSettings, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot
-    func saveInput(settings: LauncherSettings, projectID: String, inputName: LauncherInputName, request: LauncherInputSaveRequest) async throws
-    func removeFigure(settings: LauncherSettings, projectID: String, figurePath: String) async throws
+    func fetchInputStatus(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws -> LauncherInputStatusResponse
+    func validateInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot
+    func saveInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName, request: LauncherInputSaveRequest) async throws
+    func removeFigure(settings: LauncherSettings, backendURL: URL?, projectID: String, figurePath: String) async throws
+}
+
+public struct LauncherInputActionClient: LauncherInputActionPerforming {
+    private let apiClient: LauncherInputAPIClient
+    private let localClient: any LauncherInputActionPerforming
+
+    public init(
+        apiClient: LauncherInputAPIClient = LauncherInputAPIClient(),
+        localClient: any LauncherInputActionPerforming = LauncherNativeInputActionClient()
+    ) {
+        self.apiClient = apiClient
+        self.localClient = localClient
+    }
+
+    public func fetchInputStatus(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws -> LauncherInputStatusResponse {
+        if let backendURL {
+            return try await apiClient.fetchInputStatus(backendURL: backendURL, projectID: projectID)
+        }
+        return try await localClient.fetchInputStatus(settings: settings, backendURL: nil, projectID: projectID)
+    }
+
+    public func validateInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot {
+        if let backendURL {
+            return try await apiClient.validateInput(backendURL: backendURL, projectID: projectID, inputName: inputName)
+        }
+        return try await localClient.validateInput(settings: settings, backendURL: nil, projectID: projectID, inputName: inputName)
+    }
+
+    public func saveInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName, request: LauncherInputSaveRequest) async throws {
+        if let backendURL {
+            try await apiClient.saveInput(backendURL: backendURL, projectID: projectID, inputName: inputName, request: request)
+        } else {
+            try await localClient.saveInput(settings: settings, backendURL: nil, projectID: projectID, inputName: inputName, request: request)
+        }
+    }
+
+    public func removeFigure(settings: LauncherSettings, backendURL: URL?, projectID: String, figurePath: String) async throws {
+        if let backendURL {
+            try await apiClient.removeFigure(backendURL: backendURL, projectID: projectID, figurePath: figurePath)
+        } else {
+            try await localClient.removeFigure(settings: settings, backendURL: nil, projectID: projectID, figurePath: figurePath)
+        }
+    }
+}
+
+public struct LauncherInputAPIClient: Sendable {
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func fetchInputStatus(backendURL: URL, projectID: String) async throws -> LauncherInputStatusResponse {
+        let data = try await performInputRequest(
+            URLRequest(url: backendURL.appending(path: "api/projects/\(projectID)/inputs/status")),
+            actionName: "fetch input status"
+        )
+        return try JSONDecoder().decode(LauncherInputStatusResponse.self, from: data)
+    }
+
+    public func validateInput(backendURL: URL, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot {
+        var request = URLRequest(url: backendURL.appending(path: "api/projects/\(projectID)/inputs/\(inputName.rawValue)/validate"))
+        request.httpMethod = "POST"
+        let data = try await performInputRequest(request, actionName: "validate input")
+        return try JSONDecoder().decode(LauncherInputValidationSnapshot.self, from: data)
+    }
+
+    public func saveInput(
+        backendURL: URL,
+        projectID: String,
+        inputName: LauncherInputName,
+        request saveRequest: LauncherInputSaveRequest
+    ) async throws {
+        var request = URLRequest(url: backendURL.appending(path: "api/projects/\(projectID)/inputs/\(inputName.rawValue)"))
+        request.httpMethod = "POST"
+        if saveRequest.files.isEmpty {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(LauncherInputAPIFieldsPayload(fields: saveRequest.fields))
+        } else {
+            let boundary = "PaperOrchestraBoundary-\(UUID().uuidString)"
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.multipartBody(for: saveRequest, boundary: boundary)
+        }
+        _ = try await performInputRequest(request, actionName: "save input")
+    }
+
+    public func removeFigure(backendURL: URL, projectID: String, figurePath: String) async throws {
+        var request = URLRequest(url: backendURL.appending(path: "api/projects/\(projectID)/inputs/figures/remove"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["path": figurePath])
+        _ = try await performInputRequest(request, actionName: "remove figure")
+    }
+
+    private func performInputRequest(_ request: URLRequest, actionName: String) async throws -> Data {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw LauncherError.processLaunchFailed("Input action returned a non-HTTP response.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw LauncherError.processLaunchFailed(
+                "Input action failed to \(actionName): \(Self.errorMessage(from: data, statusCode: http.statusCode))"
+            )
+        }
+        return data
+    }
+
+    private static func multipartBody(for request: LauncherInputSaveRequest, boundary: String) -> Data {
+        var body = Data()
+        for field in request.fields.sorted(by: { $0.key < $1.key }) {
+            for value in field.value {
+                appendFormField(name: field.key, value: value, boundary: boundary, to: &body)
+            }
+        }
+        for file in request.files {
+            appendFile(file, boundary: boundary, to: &body)
+        }
+        body.appendString("--\(boundary)--\r\n")
+        return body
+    }
+
+    private static func appendFormField(name: String, value: String, boundary: String, to body: inout Data) {
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+        body.appendString("\(value)\r\n")
+    }
+
+    private static func appendFile(_ file: LauncherInputFileAttachment, boundary: String, to body: inout Data) {
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"\(file.fieldName)\"; filename=\"\(file.filename)\"\r\n")
+        body.appendString("Content-Type: \(file.contentType)\r\n\r\n")
+        body.append(file.data)
+        body.appendString("\r\n")
+    }
+
+    private static func errorMessage(from data: Data, statusCode: Int) -> String {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return String(data: data, encoding: .utf8) ?? "HTTP \(statusCode)"
+        }
+        if let message = payload["message"] as? String, !message.isEmpty {
+            return message
+        }
+        if let detail = payload["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+        if let error = payload["error"] as? String, !error.isEmpty {
+            return error
+        }
+        if let status = payload["status"] as? String, !status.isEmpty {
+            return status
+        }
+        return "HTTP \(statusCode)"
+    }
+}
+
+private struct LauncherInputAPIFieldsPayload: Encodable {
+    let fields: [String: [String]]
+}
+
+private extension Data {
+    mutating func appendString(_ value: String) {
+        append(Data(value.utf8))
+    }
 }
 
 public struct LauncherNativeInputActionClient: LauncherInputActionPerforming {
     public init() {}
+
+    public func fetchInputStatus(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws -> LauncherInputStatusResponse {
+        try await fetchInputStatus(settings: settings, projectID: projectID)
+    }
+
+    public func validateInput(
+        settings: LauncherSettings,
+        backendURL: URL?,
+        projectID: String,
+        inputName: LauncherInputName
+    ) async throws -> LauncherInputValidationSnapshot {
+        try await validateInput(settings: settings, projectID: projectID, inputName: inputName)
+    }
+
+    public func saveInput(
+        settings: LauncherSettings,
+        backendURL: URL?,
+        projectID: String,
+        inputName: LauncherInputName,
+        request: LauncherInputSaveRequest
+    ) async throws {
+        try await saveInput(settings: settings, projectID: projectID, inputName: inputName, request: request)
+    }
+
+    public func removeFigure(settings: LauncherSettings, backendURL: URL?, projectID: String, figurePath: String) async throws {
+        try await removeFigure(settings: settings, projectID: projectID, figurePath: figurePath)
+    }
 
     public func fetchInputStatus(settings: LauncherSettings, projectID: String) async throws -> LauncherInputStatusResponse {
         let validation = try validateAndPersist(settings: settings, projectID: projectID)
