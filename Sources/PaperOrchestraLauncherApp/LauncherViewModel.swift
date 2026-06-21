@@ -36,6 +36,8 @@ final class LauncherViewModel: ObservableObject {
     @Published var workspaceSelection: WorkspaceSelection
     @Published var activeInputOperation: InputOperation?
     @Published var latestInputActionError: String?
+    @Published var isCreatingProject = false
+    @Published var latestProjectActionError: String?
 
     private let directories: LauncherDirectories
     private let settingsStore: LauncherSettingsStore
@@ -61,6 +63,7 @@ final class LauncherViewModel: ObservableObject {
         settings: LauncherSettings? = nil,
         workspaceProvider: LauncherWorkspaceProviding = LauncherWorkspaceRepository(),
         notificationScheduler: LauncherNotificationScheduling = UserNotificationScheduler(),
+        projectActionClient: LauncherProjectActionPerforming = LauncherProjectActionClient(),
         backendSupervisorFactory: ((LauncherSettings) -> BackendEnsuring)? = nil
     ) {
         self.directories = directories
@@ -81,7 +84,8 @@ final class LauncherViewModel: ObservableObject {
             settings: loadedSettings,
             settingsStore: resolvedSettingsStore,
             workspaceProvider: workspaceProvider,
-            notificationCoordinator: LauncherNotificationCoordinator(scheduler: notificationScheduler)
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: notificationScheduler),
+            projectActionClient: projectActionClient
         )
         let loadedSnapshot = workspaceCoordinator.snapshot
         snapshot = loadedSnapshot
@@ -254,8 +258,36 @@ final class LauncherViewModel: ObservableObject {
         workspaceSelection.destination = .inputs(panel: panel)
     }
 
+    @discardableResult
+    func createProject(_ request: LauncherProjectCreateRequest) async -> Bool {
+        isCreatingProject = true
+        latestProjectActionError = nil
+        defer { isCreatingProject = false }
+
+        do {
+            let actionBackendURL = snapshot.integrations.backendReachable
+                ? (backendURL ?? settings.backendURL)
+                : nil
+            _ = try await workspaceCoordinator.createProject(
+                request: request,
+                backendURL: actionBackendURL
+            )
+            syncFromWorkspaceCoordinator()
+            workspaceSelection.destination = .inputs(panel: .idea)
+            workspaceSelection.selectedStageName = nil
+            workspaceSelection.selectedArtifactPath = nil
+            return true
+        } catch {
+            latestProjectActionError = error.localizedDescription
+            return false
+        }
+    }
+
     func startRun() {
         Task {
+            guard !routeToLaunchBlockingInputIfNeeded() else {
+                return
+            }
             do {
                 try await workspaceCoordinator.startSelectedProjectRun()
                 await refreshWorkspaceState()
@@ -264,6 +296,30 @@ final class LauncherViewModel: ObservableObject {
                 phase = .failed(error.localizedDescription)
             }
         }
+    }
+
+    @discardableResult
+    func routeToLaunchBlockingInputIfNeeded() -> Bool {
+        guard let project = snapshot.selectedProject else {
+            latestInputActionError = "Select a project before starting a run."
+            workspaceSelection.destination = .setup
+            return true
+        }
+        guard let inputs = snapshot.selectedProjectInputs else {
+            latestInputActionError = "Input readiness is not loaded for \(project.title). Refresh the project inputs before starting."
+            workspaceSelection.destination = .inputs(panel: .idea)
+            return true
+        }
+        guard let blockingInputName = inputs.launchBlockingInputName else {
+            latestInputActionError = nil
+            return false
+        }
+        let panel = WorkspaceInputPanel(inputName: blockingInputName)
+        latestInputActionError = "Complete \(panel.title) before starting a run."
+        workspaceSelection.destination = .inputs(panel: panel)
+        workspaceSelection.selectedStageName = nil
+        workspaceSelection.selectedArtifactPath = nil
+        return true
     }
 
     func resumeRun() {

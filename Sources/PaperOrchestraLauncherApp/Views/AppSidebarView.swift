@@ -4,6 +4,7 @@ import PaperOrchestraLauncherCore
 
 struct LauncherSidebarView: View {
     @ObservedObject var viewModel: LauncherViewModel
+    @State private var showingNewProject = false
 
     var body: some View {
         SidebarPanelSurface {
@@ -18,6 +19,25 @@ struct LauncherSidebarView: View {
                     }
 
                     sidebarSection("Projects") {
+                        Button {
+                            showingNewProject = true
+                        } label: {
+                            HStack(spacing: LauncherDesignTokens.Spacing.small) {
+                                Image(systemName: "plus")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16)
+                                Text("New Project")
+                                    .font(LauncherTypography.body)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!viewModel.snapshot.integrations.dataRootReadable)
+
                         ForEach(viewModel.snapshot.projects) { project in
                             Button {
                                 viewModel.selectProject(project.id)
@@ -104,6 +124,9 @@ struct LauncherSidebarView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .clipped()
+        }
+        .sheet(isPresented: $showingNewProject) {
+            ProjectCreationSheet(viewModel: viewModel)
         }
     }
 
