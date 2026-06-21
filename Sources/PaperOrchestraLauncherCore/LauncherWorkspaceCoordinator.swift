@@ -21,7 +21,7 @@ public final class LauncherWorkspaceCoordinator {
         workspaceProvider: LauncherWorkspaceProviding,
         notificationCoordinator: LauncherNotificationCoordinator,
         inputActionClient: LauncherInputActionPerforming = LauncherNativeInputActionClient(),
-        runActionClient: LauncherRunActionPerforming = LauncherNativeRunActionClient(),
+        runActionClient: LauncherRunActionPerforming = LauncherRunActionClient(),
         projectActionClient: LauncherProjectActionPerforming = LauncherProjectActionClient()
     ) {
         self.settings = settings
@@ -138,37 +138,43 @@ public final class LauncherWorkspaceCoordinator {
         reconcileSelection()
     }
 
-    public func startSelectedProjectRun() async throws {
+    public func startSelectedProjectRun(backendURL: URL? = nil) async throws {
         guard let projectID = snapshot.selectedProject?.id else { return }
-        try await runActionClient.startRun(settings: settings, projectID: projectID)
+        try await runActionClient.startRun(settings: settings, backendURL: backendURL, projectID: projectID)
     }
 
-    public func resumeSelectedRun() async throws {
+    public func resumeSelectedRun(backendURL: URL? = nil) async throws {
         guard let projectID = snapshot.selectedProject?.id, let runID = snapshot.selectedRun?.id else { return }
-        try await runActionClient.resumeRun(settings: settings, projectID: projectID, runID: runID)
+        try await runActionClient.resumeRun(settings: settings, backendURL: backendURL, projectID: projectID, runID: runID)
     }
 
-    public func retrySelectedStage() async throws {
+    public func retrySelectedStage(backendURL: URL? = nil) async throws {
         guard let projectID = snapshot.selectedProject?.id,
               let runID = snapshot.selectedRun?.id,
               let stageName = snapshot.selectedStage?.name ?? snapshot.selectedRun?.currentStage
         else { return }
-        try await runActionClient.retryStage(settings: settings, projectID: projectID, runID: runID, stageName: stageName)
+        try await runActionClient.retryStage(
+            settings: settings,
+            backendURL: backendURL,
+            projectID: projectID,
+            runID: runID,
+            stageName: stageName
+        )
     }
 
-    public func cancelSelectedRun() async throws {
+    public func cancelSelectedRun(backendURL: URL? = nil) async throws {
         guard let projectID = snapshot.selectedProject?.id,
               let runID = snapshot.selectedRun?.id
         else { return }
-        try await runActionClient.cancelRun(settings: settings, projectID: projectID, runID: runID)
-        await refresh(backendReachable: snapshot.integrations.backendReachable)
+        try await runActionClient.cancelRun(settings: settings, backendURL: backendURL, projectID: projectID, runID: runID)
+        await refresh(backendReachable: backendURL != nil)
     }
 
-    public func refreshSelectedRunProcessState() async throws {
+    public func refreshSelectedRunProcessState(backendURL: URL? = nil) async throws {
         guard let projectID = snapshot.selectedProject?.id,
               let runID = snapshot.selectedRun?.id
         else { return }
-        try await runActionClient.refreshRunProcess(settings: settings, projectID: projectID, runID: runID)
+        try await runActionClient.refreshRunProcess(settings: settings, backendURL: backendURL, projectID: projectID, runID: runID)
     }
 
     @discardableResult

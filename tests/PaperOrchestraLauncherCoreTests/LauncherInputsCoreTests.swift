@@ -698,6 +698,75 @@ struct LauncherNativeRunActionClientTests {
     }
 }
 
+struct LauncherRunAPIClientTests {
+    @Test
+    func apiClientPostsRunActionEndpoints() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RunAPISuccessURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = LauncherRunAPIClient(session: session)
+        let host = "run-api-\(UUID().uuidString).test"
+        let backendURL = URL(string: "http://\(host):8765")!
+
+        try await client.startRun(backendURL: backendURL, projectID: "project-1")
+        try await client.retryStage(backendURL: backendURL, projectID: "project-1", runID: "run-1", stageName: "literature")
+        try await client.resumeRun(backendURL: backendURL, projectID: "project-1", runID: "run-1")
+        try await client.cancelRun(backendURL: backendURL, projectID: "project-1", runID: "run-1")
+        try await client.refreshRun(backendURL: backendURL, projectID: "project-1", runID: "run-1")
+
+        let requests = RunAPISuccessURLProtocol.requests(for: host)
+        #expect(requests.map { $0.httpMethod ?? "" } == ["POST", "POST", "POST", "POST", "GET"])
+        #expect(requests.map { $0.url?.path } == [
+            "/api/projects/project-1/runs/start",
+            "/api/projects/project-1/runs/run-1/retry/literature",
+            "/api/projects/project-1/runs/run-1/resume",
+            "/api/projects/project-1/runs/run-1/cancel",
+            "/api/projects/project-1/runs/run-1",
+        ])
+    }
+
+    @Test
+    func apiClientSurfacesRunActionErrorDetails() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RunAPIErrorURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = LauncherRunAPIClient(session: session)
+        var capturedError: Error?
+
+        do {
+            try await client.startRun(
+                backendURL: URL(string: "http://127.0.0.1:8765")!,
+                projectID: "project-1"
+            )
+        } catch {
+            capturedError = error
+        }
+
+        let launcherError = try #require(capturedError as? LauncherError)
+        #expect(launcherError.localizedDescription.contains("Project inputs have blockers."))
+    }
+
+    @Test
+    func compositeRunClientUsesAPIWhenBackendURLIsPresentAndLocalFallbackWhenMissing() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RunAPISuccessURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let localClient = RecordingRunActionClient()
+        let client = LauncherRunActionClient(
+            apiClient: LauncherRunAPIClient(session: session),
+            localClient: localClient
+        )
+        let host = "run-composite-\(UUID().uuidString).test"
+        let backendURL = URL(string: "http://\(host):8765")!
+
+        try await client.startRun(settings: .defaultValue(), backendURL: backendURL, projectID: "project-1")
+        try await client.cancelRun(settings: .defaultValue(), backendURL: nil, projectID: "project-1", runID: "run-1")
+
+        #expect(RunAPISuccessURLProtocol.requests(for: host).map { $0.url?.path } == ["/api/projects/project-1/runs/start"])
+        #expect(await localClient.calls == [.cancel(nil)])
+    }
+}
+
 private actor RecordingNativeInputActionClient: LauncherInputActionPerforming {
     struct SavedInput: Equatable {
         let inputName: LauncherInputName
@@ -719,6 +788,108 @@ private actor RecordingNativeInputActionClient: LauncherInputActionPerforming {
     }
 
     func removeFigure(settings: LauncherSettings, projectID: String, figurePath: String) async throws {}
+}
+
+private actor RecordingRunActionClient: LauncherRunActionPerforming {
+    enum Call: Equatable {
+        case start(String?)
+        case resume(String?)
+        case retry(String?, String)
+        case cancel(String?)
+        case refresh(String?)
+    }
+
+    private(set) var calls: [Call] = []
+
+    func startRun(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws {
+        calls.append(.start(backendURL?.absoluteString))
+    }
+
+    func resumeRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        calls.append(.resume(backendURL?.absoluteString))
+    }
+
+    func retryStage(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String, stageName: String) async throws {
+        calls.append(.retry(backendURL?.absoluteString, stageName))
+    }
+
+    func cancelRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        calls.append(.cancel(backendURL?.absoluteString))
+    }
+
+    func refreshRunProcess(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        calls.append(.refresh(backendURL?.absoluteString))
+    }
+}
+
+private final class RunAPISuccessURLProtocol: URLProtocol {
+    nonisolated(unsafe) private static var recordedRequests: [URLRequest] = []
+    private static let lock = NSLock()
+
+    static func requests(for host: String) -> [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.filter { $0.url?.host == host }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.record(request)
+        let statusCode = request.url?.path.contains("/runs/start") == true
+            || request.url?.path.contains("/retry/") == true
+            ? 202
+            : 200
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data(#"{"run":{"run_id":"run-1","status":"running","stages":{}}}"#.utf8)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func record(_ request: URLRequest) {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedRequests.append(request)
+    }
+}
+
+private final class RunAPIErrorURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 409,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data(#"{"status":"blocked","error":"inputs_blocked","detail":"Project inputs have blockers."}"#.utf8)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 private final class FakeInputWorkspaceProvider: LauncherWorkspaceProviding, @unchecked Sendable {

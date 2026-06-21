@@ -64,6 +64,7 @@ final class LauncherViewModel: ObservableObject {
         workspaceProvider: LauncherWorkspaceProviding = LauncherWorkspaceRepository(),
         notificationScheduler: LauncherNotificationScheduling = UserNotificationScheduler(),
         projectActionClient: LauncherProjectActionPerforming = LauncherProjectActionClient(),
+        runActionClient: LauncherRunActionPerforming = LauncherRunActionClient(),
         backendSupervisorFactory: ((LauncherSettings) -> BackendEnsuring)? = nil
     ) {
         self.directories = directories
@@ -85,6 +86,7 @@ final class LauncherViewModel: ObservableObject {
             settingsStore: resolvedSettingsStore,
             workspaceProvider: workspaceProvider,
             notificationCoordinator: LauncherNotificationCoordinator(scheduler: notificationScheduler),
+            runActionClient: runActionClient,
             projectActionClient: projectActionClient
         )
         let loadedSnapshot = workspaceCoordinator.snapshot
@@ -289,7 +291,7 @@ final class LauncherViewModel: ObservableObject {
                 return
             }
             do {
-                try await workspaceCoordinator.startSelectedProjectRun()
+                try await workspaceCoordinator.startSelectedProjectRun(backendURL: runActionBackendURL())
                 await refreshWorkspaceState()
                 reload()
             } catch {
@@ -325,7 +327,7 @@ final class LauncherViewModel: ObservableObject {
     func resumeRun() {
         Task {
             do {
-                try await workspaceCoordinator.resumeSelectedRun()
+                try await workspaceCoordinator.resumeSelectedRun(backendURL: runActionBackendURL())
                 await refreshWorkspaceState()
                 reload()
             } catch {
@@ -337,7 +339,7 @@ final class LauncherViewModel: ObservableObject {
     func retryStage() {
         Task {
             do {
-                try await workspaceCoordinator.retrySelectedStage()
+                try await workspaceCoordinator.retrySelectedStage(backendURL: runActionBackendURL())
                 await refreshWorkspaceState()
                 reload()
             } catch {
@@ -349,7 +351,7 @@ final class LauncherViewModel: ObservableObject {
     func cancelRun() {
         Task {
             do {
-                try await workspaceCoordinator.cancelSelectedRun()
+                try await workspaceCoordinator.cancelSelectedRun(backendURL: runActionBackendURL())
                 await refreshWorkspaceState()
                 reload()
             } catch {
@@ -451,7 +453,8 @@ final class LauncherViewModel: ObservableObject {
             reloadToken = UUID()
         }
         lastBackendReachable = backendReachable
-        try? await workspaceCoordinator.refreshSelectedRunProcessState()
+        let actionBackendURL = backendReachable ? (backendURL ?? settings.backendURL) : nil
+        try? await workspaceCoordinator.refreshSelectedRunProcessState(backendURL: actionBackendURL)
         await workspaceCoordinator.refresh(backendReachable: backendReachable)
         syncFromWorkspaceCoordinator()
         if !backendReachable {
@@ -466,6 +469,10 @@ final class LauncherViewModel: ObservableObject {
         syncFromWorkspaceCoordinator()
         phase = .running
         beginRefreshing()
+    }
+
+    private func runActionBackendURL() -> URL? {
+        snapshot.integrations.backendReachable ? (backendURL ?? settings.backendURL) : nil
     }
 
     private func recoverBackendIfNeeded() async {
