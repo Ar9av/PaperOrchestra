@@ -238,7 +238,7 @@ public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
             let stageArtifacts = stagePayload["artifacts"]?.arrayValue ?? [JSONValue]()
             let artifacts = stageArtifacts.compactMap { value -> LauncherArtifactSnapshot? in
                 guard let path = value.stringValue else { return nil }
-                return LauncherArtifactSnapshot(label: URL(fileURLWithPath: path).lastPathComponent, path: path)
+                return artifactSnapshot(label: URL(fileURLWithPath: path).lastPathComponent, path: path)
             }
             let substepValues = stagePayload["substeps"]?.arrayValue ?? [JSONValue]()
             let substeps = substepValues.compactMap { value -> LauncherSubstepSnapshot? in
@@ -351,15 +351,15 @@ public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
     private func legacyRunArtifacts(from raw: [String: JSONValue]) -> [LauncherArtifactSnapshot] {
         var artifacts: [LauncherArtifactSnapshot] = []
         if let resultPath = raw["result_path"]?.stringValue {
-            artifacts.append(LauncherArtifactSnapshot(label: "Atlas Result", path: resultPath))
+            artifacts.append(artifactSnapshot(label: "Atlas Result", path: resultPath))
         }
         if let logPath = raw["log_path"]?.stringValue {
-            artifacts.append(LauncherArtifactSnapshot(label: "Run Log", path: logPath))
+            artifacts.append(artifactSnapshot(label: "Run Log", path: logPath))
         }
         let screenshotPaths = raw["screenshot_paths"]?.arrayValue ?? []
         for value in screenshotPaths {
             guard let path = value.stringValue else { continue }
-            artifacts.append(LauncherArtifactSnapshot(label: URL(fileURLWithPath: path).lastPathComponent, path: path))
+            artifacts.append(artifactSnapshot(label: URL(fileURLWithPath: path).lastPathComponent, path: path))
         }
         return artifacts
     }
@@ -387,8 +387,12 @@ public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
         ]
         return candidates.compactMap { label, url in
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            return LauncherArtifactSnapshot(label: label, path: url.path)
+            return artifactSnapshot(label: label, path: url.path)
         }
+    }
+
+    private func artifactSnapshot(label: String, path: String) -> LauncherArtifactSnapshot {
+        LauncherArtifactSnapshot(label: label, path: path)
     }
 
     private func dedupeArtifacts(_ artifacts: [LauncherArtifactSnapshot]) -> [LauncherArtifactSnapshot] {

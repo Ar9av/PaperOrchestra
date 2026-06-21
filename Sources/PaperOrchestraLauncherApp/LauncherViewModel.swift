@@ -176,6 +176,7 @@ final class LauncherViewModel: ObservableObject {
     }
 
     func openArtifact(_ artifact: LauncherArtifactSnapshot) {
+        guard artifact.exists else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: artifact.path))
     }
 
@@ -185,6 +186,16 @@ final class LauncherViewModel: ObservableObject {
 
     func revealPath(_ path: String) {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    func revealArtifact(_ artifact: LauncherArtifactSnapshot) {
+        guard artifact.exists else { return }
+        revealPath(artifact.path)
+    }
+
+    func copyArtifactPath(_ artifact: LauncherArtifactSnapshot) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(artifact.path, forType: .string)
     }
 
     func copyDiagnostics(_ diagnostics: LauncherRunDiagnosticsSnapshot) {
@@ -230,6 +241,13 @@ final class LauncherViewModel: ObservableObject {
 
     func selectWorkflowDestination(_ destination: WorkspaceDestination) {
         workspaceSelection.destination = destination
+        if destination == .outputs {
+            workspaceSelection.selectedArtifactPath = outputArtifactPath(
+                preserving: workspaceSelection.selectedArtifactPath
+            )
+        } else {
+            workspaceSelection.selectedArtifactPath = nil
+        }
     }
 
     func selectInputPanel(_ panel: WorkspaceInputPanel) {
@@ -431,13 +449,25 @@ final class LauncherViewModel: ObservableObject {
            availableArtifactPaths.contains(selectedArtifactPath) {
             selection.selectedArtifactPath = selectedArtifactPath
         } else if preservedDestination == .outputs {
-            selection.selectedArtifactPath = snapshot.selectedRun?.finalPDFPath ?? snapshot.selectedRun?.artifacts.first?.path
+            selection.selectedArtifactPath = outputArtifactPath(preserving: nil)
         } else {
             selection.selectedArtifactPath = nil
         }
         if workspaceSelection != selection {
             workspaceSelection = selection
         }
+    }
+
+    private func outputArtifactPath(preserving selectedArtifactPath: String?) -> String? {
+        let artifacts = snapshot.selectedRun?.artifacts ?? []
+        let availableArtifactPaths = Set(artifacts.map(\.path))
+        if let selectedArtifactPath, availableArtifactPaths.contains(selectedArtifactPath) {
+            return selectedArtifactPath
+        }
+        let finalPDFArtifactPath = artifacts.first { artifact in
+            artifact.path == snapshot.selectedRun?.finalPDFPath
+        }?.path
+        return finalPDFArtifactPath ?? artifacts.first?.path
     }
 
     private static func workspaceSelection(for snapshot: LauncherWorkspaceSnapshot) -> WorkspaceSelection {

@@ -54,6 +54,52 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.workspaceSelection.selectedArtifactPath, "/tmp/final.pdf")
     }
 
+    func test_selectOutputsDestinationDefaultsToAvailableArtifactWhenFinalPDFMissing() throws {
+        let snapshot = FixtureWorkspaceProvider.makeArtifactSnapshot(
+            finalPDFPath: nil,
+            artifacts: [
+                LauncherArtifactSnapshot(label: "Atlas Result", path: "/tmp/atlas_result.json", exists: true),
+                LauncherArtifactSnapshot(label: "Run Log", path: "/tmp/run.log", exists: true),
+            ]
+        )
+        let viewModel = try makeViewModel(snapshots: [snapshot])
+
+        viewModel.selectWorkflowDestination(.outputs)
+
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
+        XCTAssertEqual(viewModel.workspaceSelection.selectedArtifactPath, "/tmp/atlas_result.json")
+    }
+
+    func test_outputsArtifactSelectionSurvivesRefreshAndFallsBackToAvailableArtifact() throws {
+        let preservedSnapshot = FixtureWorkspaceProvider.makeArtifactSnapshot(
+            finalPDFPath: "/tmp/final.pdf",
+            artifacts: [
+                LauncherArtifactSnapshot(label: "Final PDF", path: "/tmp/final.pdf", exists: true),
+                LauncherArtifactSnapshot(label: "Run Log", path: "/tmp/run.log", exists: true),
+            ]
+        )
+        let fallbackSnapshot = FixtureWorkspaceProvider.makeArtifactSnapshot(
+            finalPDFPath: "/tmp/unlisted-final.pdf",
+            artifacts: [
+                LauncherArtifactSnapshot(label: "Run Log", path: "/tmp/run.log", exists: true),
+            ]
+        )
+        let viewModel = try makeViewModel(snapshots: [preservedSnapshot, preservedSnapshot, fallbackSnapshot])
+        viewModel.selectWorkflowDestination(.outputs)
+        viewModel.selectArtifact("/tmp/run.log")
+
+        viewModel.selectProject("project-1")
+
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
+        XCTAssertEqual(viewModel.workspaceSelection.selectedArtifactPath, "/tmp/run.log")
+
+        viewModel.selectArtifact("/tmp/missing-selection.log")
+        viewModel.selectProject("project-1")
+
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
+        XCTAssertEqual(viewModel.workspaceSelection.selectedArtifactPath, "/tmp/run.log")
+    }
+
     func test_selectInputPanel_switchesToInputsDestination() throws {
         let viewModel = try makeViewModel()
 
@@ -402,6 +448,53 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
             selectedStage: stage,
             integrations: LauncherIntegrationSnapshot(
                 backendReachable: backendReachable,
+                repoConfigured: true,
+                pythonConfigured: true,
+                dataRoot: "/tmp/gui",
+                host: "127.0.0.1",
+                port: 8765
+            )
+        )
+    }
+
+    static func makeArtifactSnapshot(
+        finalPDFPath: String?,
+        artifacts: [LauncherArtifactSnapshot]
+    ) -> LauncherWorkspaceSnapshot {
+        let project = LauncherProjectSnapshot(
+            id: "project-1",
+            title: "Project One",
+            wizardStep: "outputs",
+            lastStatus: "succeeded",
+            workspacePath: "/tmp/project-1",
+            latestRunID: "run-1",
+            updatedAt: "2026-04-19T00:00:00+00:00"
+        )
+        let stage = LauncherStageSnapshot(
+            name: "finalize",
+            status: "succeeded",
+            summary: "Finalized.",
+            attentionMessage: nil,
+            artifacts: artifacts,
+            substeps: []
+        )
+        let run = LauncherRunSnapshot(
+            id: "run-1",
+            status: "succeeded",
+            currentStage: "finalize",
+            summary: "Finished run",
+            finalPDFPath: finalPDFPath,
+            artifacts: artifacts,
+            stages: [stage],
+            topRoadblocks: []
+        )
+        return LauncherWorkspaceSnapshot(
+            projects: [project],
+            selectedProject: project,
+            selectedRun: run,
+            selectedStage: stage,
+            integrations: LauncherIntegrationSnapshot(
+                backendReachable: true,
                 repoConfigured: true,
                 pythonConfigured: true,
                 dataRoot: "/tmp/gui",

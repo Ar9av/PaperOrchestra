@@ -254,9 +254,7 @@ extension RunWorkspaceView {
                 currentStageLabel = Self.prettyName(run.currentStage)
                 roadblocks = run.topRoadblocks
                 diagnostics = run.diagnostics?.hasWorkerMetadata == true ? run.diagnostics : nil
-                recentArtifacts = Array(run.artifacts.prefix(6)).map {
-                    OutputsWorkspaceView.Presentation.ArtifactRow(id: $0.id, label: $0.label, path: $0.path, source: $0)
-                }
+                recentArtifacts = Array(run.artifacts.prefix(6)).map(OutputsWorkspaceView.Presentation.ArtifactRow.init(source:))
 
                 let resolvedSelectedStage = snapshot.selectedStage ?? run.stages.first(where: { $0.name == run.currentStage }) ?? run.stages.first
                 stageRows = run.stages.map { stage in
