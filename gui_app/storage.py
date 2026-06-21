@@ -865,6 +865,11 @@ def create_pipeline_run(project_id: str, data_root: Path | None = None, run_id: 
         "workspace_path": str(project.get("workspace_path", "")),
         "log_path": str(run_dir(project_id, pipeline_run_id, data_root) / "logs" / "run.log"),
         "pid": None,
+        "worker_pid": None,
+        "worker_state": "missing",
+        "worker_started_at": None,
+        "worker_stdout_log_path": None,
+        "worker_stderr_log_path": None,
         "cancel_requested_at": None,
         "final_message_path": None,
         "artifacts": [],
@@ -1229,12 +1234,13 @@ def is_pid_running(pid: int | None) -> bool:
 def reconcile_run(run_payload: dict[str, Any], data_root: Path | None = None) -> dict[str, Any]:
     if run_payload.get("status") in TERMINAL_RUN_STATUSES:
         return run_payload
-    pid = run_payload.get("pid")
+    pid = run_payload.get("pid") or run_payload.get("worker_pid")
     if is_pid_running(pid):
         return run_payload
     run_payload["status"] = "interrupted"
+    run_payload["worker_state"] = "stale"
     run_payload["finished_at"] = utc_now()
-    run_payload.setdefault("summary", "The job stopped before reporting completion.")
+    run_payload["summary"] = run_payload.get("summary") or "Worker process stopped before the run completed."
     saved = save_run(run_payload, data_root)
     return append_run_event(saved, "run_interrupted", data_root, {"pid": pid})
 

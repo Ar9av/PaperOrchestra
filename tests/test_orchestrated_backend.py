@@ -900,6 +900,84 @@ class BackendIntegrationTests(unittest.TestCase):
 
 
 class JobRunnerHelperTests(unittest.TestCase):
+    def _create_project_run(self, tempdir: str) -> tuple[Path, dict[str, object], dict[str, object]]:
+        data_root = Path(tempdir) / "gui-data"
+        project = storage.create_project("Worker State Paper", "", "", data_root=data_root)
+        run_payload = storage.create_pipeline_run(project["project_id"], data_root)
+        return data_root, project, run_payload
+
+    def _run_job_main(self, data_root: Path, project_id: str, run_id: str) -> int:
+        argv = [
+            "job_runner.py",
+            "--data-root",
+            str(data_root),
+            "--project-id",
+            project_id,
+            "--run-id",
+            run_id,
+            "--kind",
+            "orchestrated",
+        ]
+        with mock.patch.object(job_runner.sys, "argv", argv):
+            return job_runner.main()
+
+    def test_main_marks_worker_state_succeeded_after_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            data_root, project, run_payload = self._create_project_run(tempdir)
+
+            with mock.patch.object(job_runner, "execute_orchestrated", return_value=run_payload):
+                result = self._run_job_main(data_root, project["project_id"], run_payload["run_id"])
+
+            self.assertEqual(result, 0)
+            updated = storage.load_run(project["project_id"], run_payload["run_id"], data_root)
+            self.assertEqual(updated["worker_state"], "succeeded")
+
+    def test_main_marks_worker_state_paused_when_input_is_needed(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            data_root, project, run_payload = self._create_project_run(tempdir)
+
+            with mock.patch.object(job_runner, "execute_orchestrated", side_effect=job_runner.RunNeedsInput("Need browser approval.")):
+                result = self._run_job_main(data_root, project["project_id"], run_payload["run_id"])
+
+            self.assertEqual(result, 1)
+            updated = storage.load_run(project["project_id"], run_payload["run_id"], data_root)
+            self.assertEqual(updated["status"], "paused")
+            self.assertEqual(updated["worker_state"], "paused")
+            self.assertEqual(updated["summary"], "Need browser approval.")
+
+    def test_main_marks_worker_state_failed_after_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            data_root, project, run_payload = self._create_project_run(tempdir)
+
+            with mock.patch.object(job_runner, "execute_orchestrated", side_effect=RuntimeError("worker exploded")):
+                result = self._run_job_main(data_root, project["project_id"], run_payload["run_id"])
+
+            self.assertEqual(result, 1)
+            updated = storage.load_run(project["project_id"], run_payload["run_id"], data_root)
+            self.assertEqual(updated["status"], "failed")
+            self.assertEqual(updated["worker_state"], "failed")
+            self.assertEqual(updated["summary"], "worker exploded")
+
+    def test_main_preserves_cancelled_worker_state_after_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            data_root, project, run_payload = self._create_project_run(tempdir)
+            storage.update_run_fields(
+                project["project_id"],
+                run_payload["run_id"],
+                data_root,
+                status="cancelled",
+                worker_state="cancelled",
+                cancel_requested_at=storage.utc_now(),
+            )
+
+            with mock.patch.object(job_runner, "execute_orchestrated", side_effect=RuntimeError("Run cancellation was requested.")):
+                result = self._run_job_main(data_root, project["project_id"], run_payload["run_id"])
+
+            self.assertEqual(result, 1)
+            updated = storage.load_run(project["project_id"], run_payload["run_id"], data_root)
+            self.assertEqual(updated["status"], "cancelled")
+            self.assertEqual(updated["worker_state"], "cancelled")
+
     def test_codex_outline_output_schema_is_strict_and_concrete(self) -> None:
         strict = job_runner.codex_outline_output_schema()
 

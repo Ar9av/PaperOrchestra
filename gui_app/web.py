@@ -50,6 +50,19 @@ def _project_or_404(project_id: str, data_root: Path) -> dict[str, Any]:
     return storage.reconcile_project_runs(project, data_root)
 
 
+def _same_origin_request(origin: str, request: Request) -> bool:
+    parsed = urllib.parse.urlparse(origin)
+    if not parsed.scheme or not parsed.hostname:
+        return False
+    request_port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    origin_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return (
+        parsed.scheme == request.url.scheme
+        and parsed.hostname == request.url.hostname
+        and origin_port == request_port
+    )
+
+
 def _workspace_outputs(project: dict[str, Any]) -> list[dict[str, str]]:
     workspace = Path(project["workspace_path"]).expanduser()
     artifacts = storage.collect_workspace_artifacts(workspace)
@@ -426,7 +439,7 @@ def _native_run_diagnostics(project_id: str, run_payload: dict[str, Any], data_r
     logs.append(_native_log_snapshot("events", str(events_log_path), allowed_roots))
     pid_value = run_payload.get("worker_pid") or run_payload.get("pid")
     return {
-        "worker_state": str(run_payload.get("worker_state") or ("missing" if not run_payload.get("pid") else run_payload.get("status", "unknown"))),
+        "worker_state": str(run_payload.get("worker_state") or ("missing" if not pid_value else run_payload.get("status", "unknown"))),
         "pid": str(pid_value) if pid_value is not None else None,
         "started_at": run_payload.get("worker_started_at") or run_payload.get("started_at"),
         "stdout_log_path": _snapshot_path_display(str(stdout_path), allowed_roots) if stdout_path else None,
@@ -1121,6 +1134,17 @@ def create_app(data_root: Path | None = None) -> FastAPI:
     app.state.data_root = str(storage.get_paths(configured_root).data_root)
     app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
 
+    @app.middleware("http")
+    async def reject_cross_origin_mutations(request: Request, call_next):
+        if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            if origin and not _same_origin_request(origin, request):
+                return JSONResponse(
+                    {"error": "cross_origin_forbidden", "message": "Cross-origin mutation requests are not allowed."},
+                    status_code=403,
+                )
+        return await call_next(request)
+
     @app.get("/health")
     async def health() -> JSONResponse:
         return JSONResponse({
@@ -1670,13 +1694,24 @@ def create_app(data_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/projects/{project_id}/runs/{run_id}/logs/{stage_name}")
     async def stage_log(project_id: str, run_id: str, stage_name: str) -> PlainTextResponse:
-        run_payload = storage.load_run(project_id, run_id, _data_root(app))
+        data_root = _data_root(app)
+        project = _project_or_404(project_id, data_root)
+        run_payload = storage.load_run(project_id, run_id, data_root)
         if not run_payload:
             raise HTTPException(status_code=404, detail="Run not found.")
         stage_payload = run_payload.get("stages", {}).get(stage_name)
         if not stage_payload:
             raise HTTPException(status_code=404, detail="Stage not found.")
-        log_path = Path(stage_payload["log_path"])
+        raw_log_path = stage_payload.get("log_path")
+        if not raw_log_path:
+            return PlainTextResponse("")
+        workspace_root = Path(str(project.get("workspace_path", ""))).expanduser()
+        allowed_roots = [workspace_root, storage.project_dir(project_id, data_root), storage.run_dir(project_id, run_id, data_root)]
+        log_path, allowed, access_issue = _safe_snapshot_path(str(raw_log_path), allowed_roots)
+        if not allowed:
+            raise HTTPException(status_code=403, detail=access_issue or "Path is outside the project workspace.")
+        if log_path.exists() and not log_path.is_file():
+            raise HTTPException(status_code=400, detail="Log path is not a regular file.")
         text = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
         return PlainTextResponse(text[-12000:])
 
