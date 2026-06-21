@@ -1171,7 +1171,8 @@ private final class FakeInputWorkspaceProvider: LauncherWorkspaceProviding, @unc
         settings: LauncherSettings,
         selectedProjectID: String?,
         selectedRunID: String?,
-        selectedStageName: String?
+        selectedStageName: String?,
+        backendURL: URL?
     ) -> LauncherWorkspaceSnapshot {
         if snapshots.count > 1 {
             return snapshots.removeFirst()

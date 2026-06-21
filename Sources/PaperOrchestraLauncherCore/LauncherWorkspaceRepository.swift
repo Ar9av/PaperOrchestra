@@ -1,13 +1,65 @@
 import Foundation
 
 public protocol LauncherWorkspaceProviding: Sendable {
-    func loadSnapshot(settings: LauncherSettings, selectedProjectID: String?, selectedRunID: String?, selectedStageName: String?) -> LauncherWorkspaceSnapshot
+    func loadSnapshot(settings: LauncherSettings, selectedProjectID: String?, selectedRunID: String?, selectedStageName: String?, backendURL: URL?) -> LauncherWorkspaceSnapshot
 }
 
 public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
-    public init() {}
+    private let apiClient: LauncherWorkspaceAPIClient
+
+    public init(apiClient: LauncherWorkspaceAPIClient = LauncherWorkspaceAPIClient()) {
+        self.apiClient = apiClient
+    }
 
     public func loadSnapshot(
+        settings: LauncherSettings,
+        selectedProjectID: String?,
+        selectedRunID: String?,
+        selectedStageName: String?
+    ) -> LauncherWorkspaceSnapshot {
+        loadSnapshot(
+            settings: settings,
+            selectedProjectID: selectedProjectID,
+            selectedRunID: selectedRunID,
+            selectedStageName: selectedStageName,
+            backendURL: nil
+        )
+    }
+
+    public func loadSnapshot(
+        settings: LauncherSettings,
+        selectedProjectID: String?,
+        selectedRunID: String?,
+        selectedStageName: String?,
+        backendURL: URL?
+    ) -> LauncherWorkspaceSnapshot {
+        var apiFailureMessage: String?
+        if let backendURL {
+            do {
+                return try apiClient.loadSnapshot(
+                    backendURL: backendURL,
+                    settings: settings,
+                    selectedProjectID: selectedProjectID,
+                    selectedRunID: selectedRunID,
+                    selectedStageName: selectedStageName
+                )
+            } catch {
+                apiFailureMessage = "Backend workspace snapshot unavailable: \(error.localizedDescription)"
+            }
+        }
+        let localSnapshot = loadLocalSnapshot(
+            settings: settings,
+            selectedProjectID: selectedProjectID,
+            selectedRunID: selectedRunID,
+            selectedStageName: selectedStageName
+        )
+        guard let apiFailureMessage else {
+            return localSnapshot
+        }
+        return localSnapshot.withIntegrationIssue(apiFailureMessage)
+    }
+
+    private func loadLocalSnapshot(
         settings: LauncherSettings,
         selectedProjectID: String?,
         selectedRunID: String?,
@@ -91,10 +143,10 @@ public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
     }
 
     private func resolveProject(from projects: [LauncherProjectSnapshot], preferredID: String?, settings: LauncherSettings) -> LauncherProjectSnapshot? {
+        if let preferredID, let match = projects.first(where: { $0.id == preferredID }) {
+            return match
+        }
         if settings.preferredReopenLastContext {
-            if let preferredID, let match = projects.first(where: { $0.id == preferredID }) {
-                return match
-            }
             if let stored = settings.lastSelectedProjectID, let match = projects.first(where: { $0.id == stored }) {
                 return match
             }
@@ -214,8 +266,10 @@ public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
     private func loadRun(dataRoot: URL, project: LauncherProjectSnapshot?, preferredRunID: String?, settings: LauncherSettings) -> LauncherRunSnapshot? {
         guard let project else { return nil }
         let runID: String?
-        if settings.preferredReopenLastContext {
-            runID = preferredRunID ?? settings.lastSelectedRunID ?? project.latestRunID
+        if let preferredRunID {
+            runID = preferredRunID
+        } else if settings.preferredReopenLastContext {
+            runID = settings.lastSelectedRunID ?? project.latestRunID
         } else {
             runID = project.latestRunID
         }
@@ -476,6 +530,696 @@ public struct LauncherWorkspaceRepository: LauncherWorkspaceProviding {
             hasBlockers: hasBlockers,
             completed: completed,
             updatedAt: updatedAt
+        )
+    }
+}
+
+private extension LauncherWorkspaceSnapshot {
+    func withIntegrationIssue(_ issue: String) -> LauncherWorkspaceSnapshot {
+        LauncherWorkspaceSnapshot(
+            projects: projects,
+            selectedProject: selectedProject,
+            selectedProjectInputs: selectedProjectInputs,
+            selectedRun: selectedRun,
+            selectedStage: selectedStage,
+            integrations: LauncherIntegrationSnapshot(
+                backendReachable: false,
+                repoConfigured: integrations.repoConfigured,
+                pythonConfigured: integrations.pythonConfigured,
+                dataRootReadable: integrations.dataRootReadable,
+                dataRootIssue: [integrations.dataRootIssue, issue]
+                    .compactMap { candidate in
+                        let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        return trimmed.isEmpty ? nil : trimmed
+                    }
+                    .joined(separator: "\n"),
+                dataRoot: integrations.dataRoot,
+                host: integrations.host,
+                port: integrations.port
+            )
+        )
+    }
+}
+
+public struct LauncherWorkspaceAPIClient: Sendable {
+    public struct Response: Sendable {
+        public let data: Data
+        public let statusCode: Int?
+
+        public init(data: Data, statusCode: Int? = nil) {
+            self.data = data
+            self.statusCode = statusCode
+        }
+    }
+
+    private let requestResponse: @Sendable (URLRequest) throws -> Response
+
+    public init() {
+        self.requestResponse = Self.defaultRequestResponse
+    }
+
+    public init(requestData: @escaping @Sendable (URLRequest) throws -> Data) {
+        self.requestResponse = { request in
+            Response(data: try requestData(request))
+        }
+    }
+
+    public init(requestResponse: @escaping @Sendable (URLRequest) throws -> Response) {
+        self.requestResponse = requestResponse
+    }
+
+    public func loadSnapshot(
+        backendURL: URL,
+        settings: LauncherSettings,
+        selectedProjectID: String?,
+        selectedRunID: String?,
+        selectedStageName: String?
+    ) throws -> LauncherWorkspaceSnapshot {
+        var components = URLComponents(
+            url: backendURL.appending(path: "api/workspace/snapshot"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "selected_project_id", value: selectedProjectID),
+            URLQueryItem(name: "selected_run_id", value: selectedRunID),
+            URLQueryItem(name: "selected_stage_name", value: selectedStageName),
+        ].filter { !($0.value ?? "").isEmpty }
+        guard let url = components?.url else {
+            throw LauncherError.processLaunchFailed("Could not build workspace snapshot URL.")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let response = try requestResponse(request)
+        if let statusCode = response.statusCode,
+           !(200..<300).contains(statusCode) {
+            throw LauncherError.processLaunchFailed(
+                "Workspace snapshot request failed: \(Self.errorMessage(from: response.data, statusCode: statusCode))"
+            )
+        }
+        return try JSONDecoder().decode(WorkspaceAPISnapshot.self, from: response.data).toDomain(fallbackSettings: settings)
+    }
+
+    private static func defaultRequestResponse(_ request: URLRequest) throws -> Response {
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultBox = WorkspaceAPIResponseBox()
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            let nextResult: Result<Response, Error>
+            if let error {
+                nextResult = .failure(error)
+            } else if let http = response as? HTTPURLResponse {
+                nextResult = .success(Response(data: data ?? Data(), statusCode: http.statusCode))
+            } else {
+                nextResult = .failure(LauncherError.processLaunchFailed("Workspace snapshot request returned a non-HTTP response."))
+            }
+            resultBox.store(nextResult)
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+        let completed = resultBox.load()
+        guard let completed else {
+            throw LauncherError.processLaunchFailed("Workspace snapshot request did not complete.")
+        }
+        return try completed.get()
+    }
+
+    private static func errorMessage(from data: Data, statusCode: Int) -> String {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return String(data: data, encoding: .utf8) ?? "HTTP \(statusCode)"
+        }
+        if let message = payload["message"] as? String, !message.isEmpty {
+            return message
+        }
+        if let detail = payload["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+        if let error = payload["error"] as? String, !error.isEmpty {
+            return error
+        }
+        if let status = payload["status"] as? String, !status.isEmpty {
+            return status
+        }
+        return "HTTP \(statusCode)"
+    }
+}
+
+private final class WorkspaceAPIResponseBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<LauncherWorkspaceAPIClient.Response, Error>?
+
+    func store(_ result: Result<LauncherWorkspaceAPIClient.Response, Error>) {
+        lock.lock()
+        self.result = result
+        lock.unlock()
+    }
+
+    func load() -> Result<LauncherWorkspaceAPIClient.Response, Error>? {
+        lock.lock()
+        let result = result
+        lock.unlock()
+        return result
+    }
+}
+
+private struct WorkspaceAPISnapshot: Decodable {
+    let projects: [WorkspaceAPIProject]
+    let selectedProject: WorkspaceAPIProject?
+    let selectedProjectInputs: WorkspaceAPIInputs?
+    let selectedRun: WorkspaceAPIRun?
+    let selectedStage: WorkspaceAPIStage?
+    let integrations: WorkspaceAPIIntegration
+
+    private enum CodingKeys: String, CodingKey {
+        case projects
+        case selectedProject = "selected_project"
+        case selectedProjectInputs = "selected_project_inputs"
+        case selectedRun = "selected_run"
+        case selectedStage = "selected_stage"
+        case integrations
+    }
+
+    func toDomain(fallbackSettings settings: LauncherSettings) -> LauncherWorkspaceSnapshot {
+        let run = selectedRun?.toDomain()
+        let stage = selectedStage?.toDomain() ?? run.flatMap { resolvedRun in
+            if let current = resolvedRun.stages.first(where: { $0.name == resolvedRun.currentStage }) {
+                return current
+            }
+            return resolvedRun.stages.first
+        }
+        return LauncherWorkspaceSnapshot(
+            projects: projects.map { $0.toDomain() },
+            selectedProject: selectedProject?.toDomain(),
+            selectedProjectInputs: selectedProjectInputs?.toDomain(),
+            selectedRun: run,
+            selectedStage: stage,
+            integrations: integrations.toDomain(fallbackSettings: settings)
+        )
+    }
+}
+
+private struct WorkspaceAPIProject: Decodable {
+    let id: String
+    let title: String
+    let wizardStep: String
+    let lastStatus: String
+    let workspacePath: String
+    let latestRunID: String?
+    let updatedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case wizardStep = "wizard_step"
+        case lastStatus = "last_status"
+        case workspacePath = "workspace_path"
+        case latestRunID = "latest_run_id"
+        case updatedAt = "updated_at"
+    }
+
+    func toDomain() -> LauncherProjectSnapshot {
+        LauncherProjectSnapshot(
+            id: id,
+            title: title,
+            wizardStep: wizardStep,
+            lastStatus: lastStatus,
+            workspacePath: workspacePath,
+            latestRunID: latestRunID,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct WorkspaceAPIInputs: Decodable {
+    let status: String
+    let summary: String
+    let hasBlockers: Bool
+    let updatedAt: String?
+    let idea: WorkspaceAPIIdea
+    let experimental: WorkspaceAPIExperimental
+    let template: WorkspaceAPITemplate
+    let guidelines: WorkspaceAPIGuidelines
+    let figures: WorkspaceAPIFigures
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case summary
+        case hasBlockers = "has_blockers"
+        case updatedAt = "updated_at"
+        case idea
+        case experimental
+        case template
+        case guidelines
+        case figures
+    }
+
+    func toDomain() -> LauncherProjectInputsSnapshot {
+        LauncherProjectInputsSnapshot(
+            status: status,
+            summary: summary,
+            hasBlockers: hasBlockers,
+            updatedAt: updatedAt,
+            idea: idea.toDomain(),
+            experimental: experimental.toDomain(),
+            template: template.toDomain(),
+            guidelines: guidelines.toDomain(),
+            figures: figures.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPIValidation: Decodable {
+    let messages: [String]
+    let hasBlockers: Bool
+    let completed: Bool
+    let updatedAt: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case messages
+        case hasBlockers = "has_blockers"
+        case completed
+        case updatedAt = "updated_at"
+    }
+
+    func toDomain() -> LauncherInputValidationSnapshot {
+        LauncherInputValidationSnapshot(
+            messages: messages,
+            hasBlockers: hasBlockers,
+            completed: completed,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct WorkspaceAPIIdea: Decodable {
+    let editorMode: String
+    let problemStatement: String
+    let coreHypothesis: String
+    let methodology: String
+    let expectedContribution: String
+    let notes: String
+    let rawMarkdown: String
+    let validation: WorkspaceAPIValidation
+
+    private enum CodingKeys: String, CodingKey {
+        case editorMode = "editor_mode"
+        case problemStatement = "problem_statement"
+        case coreHypothesis = "core_hypothesis"
+        case methodology
+        case expectedContribution = "expected_contribution"
+        case notes
+        case rawMarkdown = "raw_markdown"
+        case validation
+    }
+
+    func toDomain() -> LauncherIdeaInputSnapshot {
+        LauncherIdeaInputSnapshot(
+            editorMode: editorMode,
+            problemStatement: problemStatement,
+            coreHypothesis: coreHypothesis,
+            methodology: methodology,
+            expectedContribution: expectedContribution,
+            notes: notes,
+            rawMarkdown: rawMarkdown,
+            validation: validation.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPIExperimental: Decodable {
+    let editorMode: String
+    let setupText: String
+    let rawNumericData: String
+    let qualitativeObservations: String
+    let logText: String
+    let sourceFilename: String
+    let validation: WorkspaceAPIValidation
+
+    private enum CodingKeys: String, CodingKey {
+        case editorMode = "editor_mode"
+        case setupText = "setup_text"
+        case rawNumericData = "raw_numeric_data"
+        case qualitativeObservations = "qualitative_observations"
+        case logText = "log_text"
+        case sourceFilename = "source_filename"
+        case validation
+    }
+
+    func toDomain() -> LauncherExperimentalInputSnapshot {
+        LauncherExperimentalInputSnapshot(
+            editorMode: editorMode,
+            setupText: setupText,
+            rawNumericData: rawNumericData,
+            qualitativeObservations: qualitativeObservations,
+            logText: logText,
+            sourceFilename: sourceFilename,
+            validation: validation.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPITemplate: Decodable {
+    let editorMode: String
+    let text: String
+    let sourceFilename: String
+    let validation: WorkspaceAPIValidation
+
+    private enum CodingKeys: String, CodingKey {
+        case editorMode = "editor_mode"
+        case text
+        case sourceFilename = "source_filename"
+        case validation
+    }
+
+    func toDomain() -> LauncherTemplateInputSnapshot {
+        LauncherTemplateInputSnapshot(
+            editorMode: editorMode,
+            text: text,
+            sourceFilename: sourceFilename,
+            validation: validation.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPIGuidelines: Decodable {
+    let editorMode: String
+    let deadline: String
+    let pageLimit: String
+    let requiredSections: String
+    let formattingNotes: String
+    let guidelinesText: String
+    let sourceFilename: String
+    let validation: WorkspaceAPIValidation
+
+    private enum CodingKeys: String, CodingKey {
+        case editorMode = "editor_mode"
+        case deadline
+        case pageLimit = "page_limit"
+        case requiredSections = "required_sections"
+        case formattingNotes = "formatting_notes"
+        case guidelinesText = "guidelines_text"
+        case sourceFilename = "source_filename"
+        case validation
+    }
+
+    func toDomain() -> LauncherGuidelinesInputSnapshot {
+        LauncherGuidelinesInputSnapshot(
+            editorMode: editorMode,
+            deadline: deadline,
+            pageLimit: pageLimit,
+            requiredSections: requiredSections,
+            formattingNotes: formattingNotes,
+            guidelinesText: guidelinesText,
+            sourceFilename: sourceFilename,
+            validation: validation.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPIFigures: Decodable {
+    let items: [WorkspaceAPIFigure]
+    let validation: WorkspaceAPIValidation
+
+    func toDomain() -> LauncherFiguresInputSnapshot {
+        LauncherFiguresInputSnapshot(
+            items: items.map { $0.toDomain() },
+            validation: validation.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPIFigure: Decodable {
+    let name: String
+    let path: String
+    let sizeLabel: String
+    let isMissing: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case path
+        case sizeLabel = "size_label"
+        case isMissing = "is_missing"
+    }
+
+    func toDomain() -> LauncherFigureSnapshot {
+        LauncherFigureSnapshot(name: name, path: path, sizeLabel: sizeLabel, isMissing: isMissing)
+    }
+}
+
+private struct WorkspaceAPIRun: Decodable {
+    let id: String
+    let source: String
+    let status: String
+    let currentStage: String
+    let summary: String
+    let finalPDFPath: String?
+    let artifacts: [WorkspaceAPIArtifact]
+    let stages: [WorkspaceAPIStage]
+    let topRoadblocks: [WorkspaceAPIRoadblock]
+    let diagnostics: WorkspaceAPIDiagnostics?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case source
+        case status
+        case currentStage = "current_stage"
+        case summary
+        case finalPDFPath = "final_pdf_path"
+        case artifacts
+        case stages
+        case topRoadblocks = "top_roadblocks"
+        case diagnostics
+    }
+
+    func toDomain() -> LauncherRunSnapshot {
+        LauncherRunSnapshot(
+            id: id,
+            source: LauncherRunSource(rawValue: source) ?? .pipeline,
+            status: status,
+            currentStage: currentStage,
+            summary: summary,
+            finalPDFPath: finalPDFPath,
+            artifacts: artifacts.map { $0.toDomain() },
+            stages: stages.map { $0.toDomain() },
+            topRoadblocks: topRoadblocks.map { $0.toDomain() },
+            diagnostics: diagnostics?.toDomain()
+        )
+    }
+}
+
+private struct WorkspaceAPIStage: Decodable {
+    let name: String
+    let status: String
+    let summary: String
+    let attentionMessage: String?
+    let artifacts: [WorkspaceAPIArtifact]
+    let substeps: [WorkspaceAPISubstep]
+    let performanceSummary: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case status
+        case summary
+        case attentionMessage = "attention_message"
+        case artifacts
+        case substeps
+        case performanceSummary = "performance_summary"
+    }
+
+    func toDomain() -> LauncherStageSnapshot {
+        LauncherStageSnapshot(
+            name: name,
+            status: status,
+            summary: summary,
+            attentionMessage: attentionMessage,
+            artifacts: artifacts.map { $0.toDomain() },
+            substeps: substeps.map { $0.toDomain() },
+            performanceSummary: performanceSummary
+        )
+    }
+}
+
+private struct WorkspaceAPISubstep: Decodable {
+    let name: String
+    let status: String
+    let summary: String
+    let attentionMessage: String?
+    let performanceSummary: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case status
+        case summary
+        case attentionMessage = "attention_message"
+        case performanceSummary = "performance_summary"
+    }
+
+    func toDomain() -> LauncherSubstepSnapshot {
+        LauncherSubstepSnapshot(
+            name: name,
+            status: status,
+            summary: summary,
+            attentionMessage: attentionMessage,
+            performanceSummary: performanceSummary
+        )
+    }
+}
+
+private struct WorkspaceAPIArtifact: Decodable {
+    let label: String
+    let path: String
+    let fileName: String
+    let fileExtension: String
+    let exists: Bool
+    let sizeLabel: String
+    let parentFolder: String
+    let lastModifiedLabel: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case path
+        case fileName = "file_name"
+        case fileExtension = "file_extension"
+        case exists
+        case sizeLabel = "size_label"
+        case parentFolder = "parent_folder"
+        case lastModifiedLabel = "last_modified_label"
+    }
+
+    func toDomain() -> LauncherArtifactSnapshot {
+        LauncherArtifactSnapshot(
+            label: label,
+            path: path,
+            fileName: fileName,
+            fileExtension: fileExtension,
+            exists: exists,
+            sizeLabel: sizeLabel,
+            parentFolder: parentFolder,
+            lastModifiedLabel: lastModifiedLabel
+        )
+    }
+}
+
+private struct WorkspaceAPIRoadblock: Decodable {
+    let stageName: String
+    let message: String
+    let status: String
+
+    private enum CodingKeys: String, CodingKey {
+        case stageName = "stage_name"
+        case message
+        case status
+    }
+
+    func toDomain() -> LauncherRoadblockSnapshot {
+        LauncherRoadblockSnapshot(stageName: stageName, message: message, status: status)
+    }
+}
+
+private struct WorkspaceAPIDiagnostics: Decodable {
+    let workerState: String
+    let pid: String?
+    let startedAt: String?
+    let stdoutLogPath: String?
+    let stderrLogPath: String?
+    let runFolderPath: String
+    let eventsLogPath: String
+    let lastEventType: String?
+    let lastEventAt: String?
+    let attentionMessage: String?
+    let logs: [WorkspaceAPILog]
+
+    private enum CodingKeys: String, CodingKey {
+        case workerState = "worker_state"
+        case pid
+        case startedAt = "started_at"
+        case stdoutLogPath = "stdout_log_path"
+        case stderrLogPath = "stderr_log_path"
+        case runFolderPath = "run_folder_path"
+        case eventsLogPath = "events_log_path"
+        case lastEventType = "last_event_type"
+        case lastEventAt = "last_event_at"
+        case attentionMessage = "attention_message"
+        case logs
+    }
+
+    func toDomain() -> LauncherRunDiagnosticsSnapshot {
+        LauncherRunDiagnosticsSnapshot(
+            workerState: workerState,
+            pid: pid,
+            startedAt: startedAt,
+            stdoutLogPath: stdoutLogPath,
+            stderrLogPath: stderrLogPath,
+            runFolderPath: runFolderPath,
+            eventsLogPath: eventsLogPath,
+            lastEventType: lastEventType,
+            lastEventAt: lastEventAt,
+            attentionMessage: attentionMessage,
+            logs: logs.map { $0.toDomain() }
+        )
+    }
+}
+
+private struct WorkspaceAPILog: Decodable {
+    let kind: String
+    let path: String
+    let text: String
+    let lineCount: Int
+    let isTruncated: Bool
+    let errorMessage: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case path
+        case text
+        case lineCount = "line_count"
+        case isTruncated = "is_truncated"
+        case errorMessage = "error_message"
+    }
+
+    func toDomain() -> LauncherLogSnapshot {
+        LauncherLogSnapshot(
+            kind: LauncherLogKind(rawValue: kind) ?? .events,
+            path: path,
+            text: text,
+            lineCount: lineCount,
+            isTruncated: isTruncated,
+            errorMessage: errorMessage
+        )
+    }
+}
+
+private struct WorkspaceAPIIntegration: Decodable {
+    let backendReachable: Bool
+    let repoConfigured: Bool
+    let pythonConfigured: Bool
+    let dataRootReadable: Bool
+    let dataRootIssue: String?
+    let dataRoot: String
+    let host: String
+    let port: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case backendReachable = "backend_reachable"
+        case repoConfigured = "repo_configured"
+        case pythonConfigured = "python_configured"
+        case dataRootReadable = "data_root_readable"
+        case dataRootIssue = "data_root_issue"
+        case dataRoot = "data_root"
+        case host
+        case port
+    }
+
+    func toDomain(fallbackSettings settings: LauncherSettings) -> LauncherIntegrationSnapshot {
+        LauncherIntegrationSnapshot(
+            backendReachable: backendReachable,
+            repoConfigured: repoConfigured,
+            pythonConfigured: pythonConfigured,
+            dataRootReadable: dataRootReadable,
+            dataRootIssue: dataRootIssue,
+            dataRoot: dataRoot.isEmpty ? settings.effectiveDataRoot : dataRoot,
+            host: host.isEmpty ? settings.host : host,
+            port: port == 0 ? settings.port : port
         )
     }
 }

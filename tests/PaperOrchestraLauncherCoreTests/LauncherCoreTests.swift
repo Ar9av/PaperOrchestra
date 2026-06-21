@@ -157,6 +157,23 @@ struct LauncherWorkspaceCoordinatorTests {
             .refresh("http://127.0.0.1:8765"),
         ])
     }
+
+    @Test
+    func refreshPassesHealthyBackendURLToWorkspaceProvider() async throws {
+        var settings = LauncherSettings.defaultValue()
+        settings.lastHealthyURL = "http://127.0.0.1:9876"
+        let provider = FakeWorkspaceProvider(snapshot: .sample())
+        let controller = LauncherWorkspaceCoordinator(
+            settings: settings,
+            settingsStore: LauncherSettingsStore(settingsURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            workspaceProvider: provider,
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler())
+        )
+
+        await controller.refresh(backendReachable: true)
+
+        #expect(provider.backendURLs == [nil, "http://127.0.0.1:9876"])
+    }
 }
 
 struct BackendSupervisorTests {
@@ -401,6 +418,342 @@ struct LauncherProjectActionClientTests {
     }
 }
 
+struct LauncherWorkspaceAPIClientTests {
+    @Test
+    func apiClientDecodesWorkspaceSnapshotAndBuildsSelectionQuery() throws {
+        let recorder = WorkspaceAPIRequestRecorder()
+        let client = LauncherWorkspaceAPIClient(requestData: { request in
+            recorder.record(request)
+            return Data(Self.snapshotJSON.utf8)
+        })
+
+        let snapshot = try client.loadSnapshot(
+            backendURL: URL(string: "http://127.0.0.1:8765")!,
+            settings: .defaultValue(),
+            selectedProjectID: "project-1",
+            selectedRunID: "run-1",
+            selectedStageName: "outline"
+        )
+
+        #expect(recorder.request?.url?.path == "/api/workspace/snapshot")
+        #expect(recorder.request?.url?.query?.contains("selected_project_id=project-1") == true)
+        #expect(recorder.request?.url?.query?.contains("selected_run_id=run-1") == true)
+        #expect(recorder.request?.url?.query?.contains("selected_stage_name=outline") == true)
+        #expect(snapshot.projects.map(\.id) == ["project-1"])
+        #expect(snapshot.selectedProject?.title == "Snapshot Paper")
+        #expect(snapshot.selectedProjectInputs?.idea.rawMarkdown == "## Problem Statement\n\nNative read model")
+        #expect(snapshot.selectedProjectInputs?.idea.validation.completed == true)
+        #expect(snapshot.selectedRun?.id == "run-1")
+        #expect(snapshot.selectedRun?.artifacts.map(\.path).contains("/tmp/workspace/final/paper.pdf") == true)
+        #expect(snapshot.selectedRun?.artifacts.first(where: { $0.path == "/tmp/workspace/missing.log" })?.exists == false)
+        #expect(snapshot.selectedStage?.name == "outline")
+        #expect(snapshot.selectedStage?.performanceSummary == "3.20s wall · 1.25s CPU · 42% of one core")
+        #expect(snapshot.selectedRun?.diagnostics?.log(for: .events)?.text == "event-line")
+        #expect(snapshot.integrations.backendReachable)
+        #expect(snapshot.integrations.dataRoot == "/tmp/gui")
+    }
+
+    @Test
+    func apiClientThrowsHelpfulErrorForHTTPFailure() throws {
+        let client = LauncherWorkspaceAPIClient(requestResponse: { _ in
+            LauncherWorkspaceAPIClient.Response(
+                data: Data(#"{"detail":"snapshot schema temporarily unavailable"}"#.utf8),
+                statusCode: 503
+            )
+        })
+
+        #expect(throws: LauncherError.self) {
+            _ = try client.loadSnapshot(
+                backendURL: URL(string: "http://127.0.0.1:8765")!,
+                settings: .defaultValue(),
+                selectedProjectID: nil,
+                selectedRunID: nil,
+                selectedStageName: nil
+            )
+        }
+    }
+
+    @Test
+    func workspaceRepositoryFallsBackToLocalSnapshotWhenAPIReadFails() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let projectRoot = root.appendingPathComponent("projects/project-1", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try #"{"projects":["project-1"]}"#.write(
+            to: root.appendingPathComponent("projects_index.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        {
+          "project_id": "project-1",
+          "title": "Local Fallback Paper",
+          "wizard_step": "setup",
+          "last_status": "draft",
+          "workspace_path": "/tmp/local-workspace",
+          "latest_run_id": null,
+          "updated_at": "2026-06-21T00:00:00+00:00"
+        }
+        """.write(to: projectRoot.appendingPathComponent("project.json"), atomically: true, encoding: .utf8)
+        var settings = LauncherSettings.defaultValue()
+        settings.dataRoot = root.path
+        let repository = LauncherWorkspaceRepository(
+            apiClient: LauncherWorkspaceAPIClient(requestResponse: { _ in
+                throw LauncherError.processLaunchFailed("API unavailable")
+            })
+        )
+
+        let snapshot = repository.loadSnapshot(
+            settings: settings,
+            selectedProjectID: "project-1",
+            selectedRunID: nil,
+            selectedStageName: nil,
+            backendURL: URL(string: "http://127.0.0.1:8765")!
+        )
+
+        #expect(snapshot.selectedProject?.title == "Local Fallback Paper")
+        #expect(!snapshot.integrations.backendReachable)
+        #expect(snapshot.integrations.dataRootIssue?.contains("Backend workspace snapshot unavailable") == true)
+        #expect(snapshot.integrations.dataRootIssue?.contains("API unavailable") == true)
+    }
+
+    @Test
+    func localSnapshotHonorsExplicitSelectionWhenRestorePreferenceIsOff() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("projects/project-a", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("projects/project-b/runs/run-b", isDirectory: true), withIntermediateDirectories: true)
+        try #"{"projects":["project-a","project-b"]}"#.write(
+            to: root.appendingPathComponent("projects_index.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        {
+          "project_id": "project-a",
+          "title": "Alpha",
+          "wizard_step": "setup",
+          "last_status": "draft",
+          "workspace_path": "/tmp/alpha",
+          "latest_run_id": null,
+          "updated_at": "2026-06-21T00:00:00+00:00"
+        }
+        """.write(to: root.appendingPathComponent("projects/project-a/project.json"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "project_id": "project-b",
+          "title": "Beta",
+          "wizard_step": "run",
+          "last_status": "running",
+          "workspace_path": "/tmp/beta",
+          "latest_run_id": "run-b",
+          "updated_at": "2026-06-21T00:01:00+00:00"
+        }
+        """.write(to: root.appendingPathComponent("projects/project-b/project.json"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "project_id": "project-b",
+          "run_id": "run-b",
+          "kind": "pipeline_v2",
+          "status": "running",
+          "current_stage": "outline",
+          "summary": "Selected run",
+          "stage_order": ["outline"],
+          "stages": {
+            "outline": {
+              "status": "running",
+              "summary": "Outline",
+              "artifacts": [],
+              "substeps": [],
+              "attention_required": null
+            }
+          }
+        }
+        """.write(to: root.appendingPathComponent("projects/project-b/runs/run-b/state.json"), atomically: true, encoding: .utf8)
+        var settings = LauncherSettings.defaultValue()
+        settings.dataRoot = root.path
+        settings.preferredReopenLastContext = false
+        settings.lastSelectedProjectID = "project-a"
+
+        let snapshot = LauncherWorkspaceRepository().loadSnapshot(
+            settings: settings,
+            selectedProjectID: "project-b",
+            selectedRunID: "run-b",
+            selectedStageName: "outline"
+        )
+
+        #expect(snapshot.selectedProject?.id == "project-b")
+        #expect(snapshot.selectedRun?.id == "run-b")
+        #expect(snapshot.selectedStage?.name == "outline")
+    }
+
+    private static let snapshotJSON = """
+    {
+      "projects": [
+        {
+          "id": "project-1",
+          "title": "Snapshot Paper",
+          "wizard_step": "run",
+          "last_status": "running",
+          "workspace_path": "/tmp/workspace",
+          "latest_run_id": "run-1",
+          "updated_at": "2026-06-21T00:00:00+00:00"
+        }
+      ],
+      "selected_project": {
+        "id": "project-1",
+        "title": "Snapshot Paper",
+        "wizard_step": "run",
+        "last_status": "running",
+        "workspace_path": "/tmp/workspace",
+        "latest_run_id": "run-1",
+        "updated_at": "2026-06-21T00:00:00+00:00"
+      },
+      "selected_project_inputs": {
+        "status": "validated",
+        "summary": "All required inputs are ready.",
+        "has_blockers": false,
+        "updated_at": "2026-06-21T00:01:00+00:00",
+        "idea": {
+          "editor_mode": "raw",
+          "problem_statement": "Problem",
+          "core_hypothesis": "Hypothesis",
+          "methodology": "Method",
+          "expected_contribution": "Contribution",
+          "notes": "Notes",
+          "raw_markdown": "## Problem Statement\\n\\nNative read model",
+          "validation": {"messages": [], "has_blockers": false, "completed": true, "updated_at": "2026-06-21T00:01:00+00:00"}
+        },
+        "experimental": {
+          "editor_mode": "structured",
+          "setup_text": "Setup",
+          "raw_numeric_data": "1,2,3",
+          "qualitative_observations": "Observed",
+          "log_text": "# Log",
+          "source_filename": "experimental.md",
+          "validation": {"messages": [], "has_blockers": false, "completed": true, "updated_at": "2026-06-21T00:01:00+00:00"}
+        },
+        "template": {
+          "editor_mode": "raw",
+          "text": "\\\\documentclass{article}",
+          "source_filename": "template.tex",
+          "validation": {"messages": [], "has_blockers": false, "completed": true, "updated_at": "2026-06-21T00:01:00+00:00"}
+        },
+        "guidelines": {
+          "editor_mode": "structured",
+          "deadline": "May 1",
+          "page_limit": "8",
+          "required_sections": "Intro, Methods",
+          "formatting_notes": "Two columns",
+          "guidelines_text": "Guidelines",
+          "source_filename": "guidelines.md",
+          "validation": {"messages": [], "has_blockers": false, "completed": true, "updated_at": "2026-06-21T00:01:00+00:00"}
+        },
+        "figures": {
+          "items": [{"name": "figure.png", "path": "/tmp/figure.png", "size_label": "3 bytes", "is_missing": false}],
+          "validation": {"messages": [], "has_blockers": false, "completed": false, "updated_at": "2026-06-21T00:01:00+00:00"}
+        }
+      },
+      "selected_run": {
+        "id": "run-1",
+        "source": "pipeline",
+        "status": "running",
+        "current_stage": "outline",
+        "summary": "Current run",
+        "final_pdf_path": "/tmp/workspace/final/paper.pdf",
+        "artifacts": [
+          {
+            "label": "Final PDF",
+            "path": "/tmp/workspace/final/paper.pdf",
+            "file_name": "paper.pdf",
+            "file_extension": "pdf",
+            "exists": true,
+            "size_label": "9 bytes",
+            "parent_folder": "/tmp/workspace/final",
+            "last_modified_label": "2026-06-21T00:00+00:00"
+          },
+          {
+            "label": "missing.log",
+            "path": "/tmp/workspace/missing.log",
+            "file_name": "missing.log",
+            "file_extension": "log",
+            "exists": false,
+            "size_label": "Missing file",
+            "parent_folder": "/tmp/workspace",
+            "last_modified_label": null
+          }
+        ],
+        "stages": [
+          {
+            "name": "outline",
+            "status": "running",
+            "summary": "Outline ready",
+            "attention_message": null,
+            "artifacts": [],
+            "substeps": [
+              {"name": "outline.plan", "status": "succeeded", "summary": "Planned", "attention_message": null, "performance_summary": null}
+            ],
+            "performance_summary": "3.20s wall · 1.25s CPU · 42% of one core"
+          }
+        ],
+        "top_roadblocks": [],
+        "diagnostics": {
+          "worker_state": "running",
+          "pid": "1234",
+          "started_at": "2026-06-21T00:00:00+00:00",
+          "stdout_log_path": "/tmp/stdout.log",
+          "stderr_log_path": "/tmp/stderr.log",
+          "run_folder_path": "/tmp/run",
+          "events_log_path": "/tmp/events.jsonl",
+          "last_event_type": "stage_updated",
+          "last_event_at": "2026-06-21T00:00:00+00:00",
+          "attention_message": null,
+          "logs": [
+            {"kind": "events", "path": "/tmp/events.jsonl", "text": "event-line", "line_count": 1, "is_truncated": false, "error_message": null}
+          ]
+        }
+      },
+      "selected_stage": {
+        "name": "outline",
+        "status": "running",
+        "summary": "Outline ready",
+        "attention_message": null,
+        "artifacts": [],
+        "substeps": [],
+        "performance_summary": "3.20s wall · 1.25s CPU · 42% of one core"
+      },
+      "integrations": {
+        "backend_reachable": true,
+        "repo_configured": true,
+        "python_configured": true,
+        "data_root_readable": true,
+        "data_root_issue": null,
+        "data_root": "/tmp/gui",
+        "host": "127.0.0.1",
+        "port": 8765
+      }
+    }
+    """
+}
+
+private final class WorkspaceAPIRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedRequest: URLRequest?
+
+    var request: URLRequest? {
+        lock.lock()
+        let request = recordedRequest
+        lock.unlock()
+        return request
+    }
+
+    func record(_ request: URLRequest) {
+        lock.lock()
+        recordedRequest = request
+        lock.unlock()
+    }
+}
+
 private final class ProjectAPISuccessURLProtocol: URLProtocol {
     nonisolated(unsafe) static var capturedRequest: URLRequest?
     nonisolated(unsafe) static var capturedBody: Data?
@@ -586,7 +939,16 @@ private actor RecordingCoordinatorRunActionClient: LauncherRunActionPerforming {
 }
 
 private final class FakeWorkspaceProvider: LauncherWorkspaceProviding, @unchecked Sendable {
+    private let lock = NSLock()
     private var snapshots: [LauncherWorkspaceSnapshot]
+    private var recordedBackendURLs: [String?] = []
+
+    var backendURLs: [String?] {
+        lock.lock()
+        let urls = recordedBackendURLs
+        lock.unlock()
+        return urls
+    }
 
     init(snapshot: LauncherWorkspaceSnapshot) {
         self.snapshots = [snapshot]
@@ -596,11 +958,16 @@ private final class FakeWorkspaceProvider: LauncherWorkspaceProviding, @unchecke
         self.snapshots = snapshots
     }
 
-    func loadSnapshot(settings: LauncherSettings, selectedProjectID: String?, selectedRunID: String?, selectedStageName: String?) -> LauncherWorkspaceSnapshot {
+    func loadSnapshot(settings: LauncherSettings, selectedProjectID: String?, selectedRunID: String?, selectedStageName: String?, backendURL: URL?) -> LauncherWorkspaceSnapshot {
+        lock.lock()
+        recordedBackendURLs.append(backendURL?.absoluteString)
+        let snapshot: LauncherWorkspaceSnapshot
         if snapshots.count > 1 {
-            return snapshots.removeFirst()
+            snapshot = snapshots.removeFirst()
+        } else {
+            snapshot = snapshots[0]
         }
-        let snapshot = snapshots[0]
+        lock.unlock()
         return LauncherWorkspaceSnapshot.sample(
             selectedProjectID: selectedProjectID ?? snapshot.selectedProject?.id,
             selectedRunID: selectedRunID ?? snapshot.selectedRun?.id,
