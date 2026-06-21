@@ -174,7 +174,8 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
         settings: LauncherSettings,
         selectedProjectID: String?,
         selectedRunID: String?,
-        selectedStageName: String?
+        selectedStageName: String?,
+        backendURL: URL?
     ) -> LauncherWorkspaceSnapshot {
         let resolvedRun = run ?? LauncherRunSnapshot(
             id: "run-1",

@@ -549,6 +549,143 @@ class WebAppTests(unittest.TestCase):
         self.assertIn(str(final_pdf), workspace_paths)
         self.assertIn(str(stage_artifact), run_paths)
 
+    def test_api_workspace_snapshot_returns_native_read_model(self) -> None:
+        project = storage.create_project("Snapshot API Paper", "", "", data_root=self.data_root)
+        project["idea"]["editor_mode"] = "raw"
+        project["idea"]["raw_markdown"] = "## Problem Statement\n\nNative read model"
+        validation = {
+            "status": "validated",
+            "summary": "All required inputs are ready.",
+            "updated_at": "2026-06-21T00:00:00+00:00",
+            "has_blockers": False,
+            "inputs": {
+                "idea": {"messages": [], "has_blockers": False, "completed": True},
+                "experimental": {"messages": [], "has_blockers": False, "completed": True},
+                "template": {"messages": [], "has_blockers": False, "completed": True},
+                "guidelines": {"messages": [], "has_blockers": False, "completed": True},
+                "figures": {"messages": [], "has_blockers": False, "completed": False},
+            },
+        }
+        project = storage.save_project(project, self.data_root)
+        storage.update_latest_validation(project, validation, self.data_root)
+        project = storage.sync_workspace(storage.load_project(project["project_id"], self.data_root), self.data_root)
+        workspace = Path(project["workspace_path"])
+        final_pdf = workspace / "final" / "paper.pdf"
+        final_pdf.parent.mkdir(parents=True, exist_ok=True)
+        final_pdf.write_bytes(b"%PDF-1.4\n")
+        stage_artifact = workspace / "outline.json"
+        stage_artifact.write_text('{"ok": true}\n', encoding="utf-8")
+        run_payload = storage.create_pipeline_run(project["project_id"], self.data_root)
+        run_payload = storage.update_stage_state(
+            run_payload,
+            "outline",
+            self.data_root,
+            status="succeeded",
+            summary="Outline ready",
+            performance={"wall_seconds": 3.2, "total_cpu_seconds": 1.25, "cpu_percent_of_one_core": 42.0},
+        )
+        run_payload = storage.save_stage_artifacts(
+            run_payload,
+            "outline",
+            self.data_root,
+            [str(stage_artifact), str(workspace / "missing.log")],
+        )
+        project["latest_run_id"] = run_payload["run_id"]
+        storage.save_project(project, self.data_root)
+
+        from gui_app import web
+
+        mocked_integrations = {
+            "codex": {"available": True, "path": "/usr/local/bin/codex"},
+            "atlas": {"available": False},
+            "browser_adapter": {"primary": "local"},
+            "figure_backend": {"selected_backend": "local"},
+        }
+
+        with mock.patch.object(web, "_integration_summary", return_value=mocked_integrations):
+            response = self.client.get(
+                "/api/workspace/snapshot",
+                params={
+                    "selected_project_id": project["project_id"],
+                    "selected_run_id": run_payload["run_id"],
+                    "selected_stage_name": "outline",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["selected_project"]["id"], project["project_id"])
+        self.assertEqual(payload["selected_project_inputs"]["idea"]["raw_markdown"], "## Problem Statement\n\nNative read model")
+        self.assertTrue(payload["selected_project_inputs"]["idea"]["validation"]["completed"])
+        self.assertEqual(payload["selected_run"]["id"], run_payload["run_id"])
+        self.assertEqual(payload["selected_stage"]["name"], "outline")
+        self.assertEqual(payload["selected_stage"]["performance_summary"], "3.20s wall · 1.25s CPU · 42% of one core")
+        artifact_paths = {item["path"] for item in payload["selected_run"]["artifacts"]}
+        self.assertIn(str(final_pdf.resolve(strict=False)), artifact_paths)
+        self.assertIn(str(stage_artifact.resolve(strict=False)), artifact_paths)
+        missing_path = str((workspace / "missing.log").resolve(strict=False))
+        self.assertIn(missing_path, artifact_paths)
+        missing = next(item for item in payload["selected_run"]["artifacts"] if item["path"] == missing_path)
+        self.assertFalse(missing["exists"])
+        self.assertEqual(payload["selected_run"]["diagnostics"]["events_log_path"], str(storage.run_dir(project["project_id"], run_payload["run_id"], self.data_root) / "events.jsonl"))
+        self.assertTrue(payload["integrations"]["backend_reachable"])
+        self.assertTrue(payload["integrations"]["repo_configured"])
+        self.assertTrue(payload["integrations"]["python_configured"])
+        self.assertTrue(payload["integrations"]["data_root_readable"])
+        self.assertEqual(payload["integrations"]["data_root"], str(self.data_root))
+        self.assertEqual(payload["integrations"]["codex"]["path"], "/usr/local/bin/codex")
+        self.assertEqual(payload["integrations"]["browser_adapter"]["primary"], "local")
+
+    def test_api_workspace_snapshot_guards_out_of_scope_worker_logs(self) -> None:
+        project = storage.create_project("Snapshot Guard Paper", "", "", data_root=self.data_root)
+        run_payload = storage.create_pipeline_run(project["project_id"], self.data_root)
+        secret_log = Path(self.tempdir.name) / "secret-worker.log"
+        secret_stderr_log = Path(self.tempdir.name) / "secret-worker.err.log"
+        secret_log.write_text("TOP-SECRET-WORKER-LOG\n", encoding="utf-8")
+        secret_stderr_log.write_text("TOP-SECRET-WORKER-STDERR\n", encoding="utf-8")
+        run_payload["worker_stdout_log_path"] = str(secret_log)
+        run_payload["worker_stderr_log_path"] = str(secret_stderr_log)
+        run_payload = storage.save_run(run_payload, self.data_root)
+        storage.append_run_event(
+            run_payload,
+            "worker_path_snapshot",
+            self.data_root,
+            {"stdout": str(secret_log), "stderr": str(secret_stderr_log)},
+        )
+        project["latest_run_id"] = run_payload["run_id"]
+        storage.save_project(project, self.data_root)
+
+        response = self.client.get(
+            "/api/workspace/snapshot",
+            params={
+                "selected_project_id": project["project_id"],
+                "selected_run_id": run_payload["run_id"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        response_text = json.dumps(payload)
+        self.assertNotIn("TOP-SECRET-WORKER-LOG", response_text)
+        self.assertNotIn("TOP-SECRET-WORKER-STDERR", response_text)
+        self.assertNotIn(str(secret_log), response_text)
+        self.assertNotIn(str(secret_stderr_log), response_text)
+        self.assertEqual(payload["selected_run"]["diagnostics"]["stdout_log_path"], secret_log.name)
+        self.assertEqual(payload["selected_run"]["diagnostics"]["stderr_log_path"], secret_stderr_log.name)
+        stdout_log = next(item for item in payload["selected_run"]["diagnostics"]["logs"] if item["kind"] == "stdout")
+        self.assertEqual(stdout_log["text"], "")
+        self.assertEqual(stdout_log["path"], secret_log.name)
+        self.assertIn("outside the selected project", stdout_log["error_message"])
+        stderr_log = next(item for item in payload["selected_run"]["diagnostics"]["logs"] if item["kind"] == "stderr")
+        self.assertEqual(stderr_log["text"], "")
+        self.assertEqual(stderr_log["path"], secret_stderr_log.name)
+        self.assertIn("outside the selected project", stderr_log["error_message"])
+        events_log = next(item for item in payload["selected_run"]["diagnostics"]["logs"] if item["kind"] == "events")
+        self.assertNotIn(str(secret_log), events_log["text"])
+        self.assertNotIn(str(secret_stderr_log), events_log["text"])
+        self.assertIn(secret_log.name, events_log["text"])
+        self.assertIn(secret_stderr_log.name, events_log["text"])
+
     def test_inputs_step_renders_workbench_and_sections(self) -> None:
         project = storage.create_project("Inputs UI Paper", "", "", data_root=self.data_root)
 

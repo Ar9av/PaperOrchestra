@@ -7,6 +7,7 @@ import asyncio
 import datetime as dt
 import mimetypes
 import os
+import shutil
 import urllib.parse
 import json
 from contextlib import contextmanager
@@ -79,6 +80,433 @@ def _run_artifacts(run_payload: dict[str, Any] | None) -> list[dict[str, str]]:
                 "url_path": urllib.parse.quote(candidate),
             })
     return artifacts
+
+
+def _safe_snapshot_path(path: str, allowed_roots: list[Path] | None = None) -> tuple[Path, bool, str | None]:
+    candidate = Path(str(path)).expanduser()
+    try:
+        resolved = candidate.resolve(strict=False)
+    except OSError as error:
+        return candidate, False, f"Unable to resolve path: {error}"
+    if not allowed_roots:
+        return resolved, True, None
+    resolved_roots: list[Path] = []
+    for root in allowed_roots:
+        try:
+            resolved_roots.append(root.expanduser().resolve(strict=False))
+        except OSError:
+            continue
+    if any(root == resolved or root in resolved.parents for root in resolved_roots):
+        return resolved, True, None
+    return resolved, False, "Path is outside the selected project workspace and run data."
+
+
+def _snapshot_path_display(path: str | None, allowed_roots: list[Path]) -> str | None:
+    if not path:
+        return None
+    candidate, allowed, _ = _safe_snapshot_path(str(path), allowed_roots)
+    if allowed:
+        return str(candidate)
+    return candidate.name or None
+
+
+def _native_sanitize_log_text(text: str, allowed_roots: list[Path]) -> str:
+    sanitized_lines: list[str] = []
+    for line in text.splitlines():
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            sanitized_lines.append(line)
+            continue
+        sanitized_lines.append(json.dumps(_native_sanitize_json_value(payload, allowed_roots), ensure_ascii=False))
+    return "\n".join(sanitized_lines)
+
+
+def _native_sanitize_json_value(value: Any, allowed_roots: list[Path]) -> Any:
+    if isinstance(value, dict):
+        return {key: _native_sanitize_json_value(item, allowed_roots) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_native_sanitize_json_value(item, allowed_roots) for item in value]
+    if isinstance(value, str) and _looks_like_absolute_path(value):
+        return _snapshot_path_display(value, allowed_roots) or ""
+    return value
+
+
+def _looks_like_absolute_path(value: str) -> bool:
+    if not value or "\n" in value:
+        return False
+    return Path(value).expanduser().is_absolute()
+
+
+def _native_artifact_snapshot(label: str, path: str, allowed_roots: list[Path] | None = None) -> dict[str, Any]:
+    candidate, allowed, access_issue = _safe_snapshot_path(path, allowed_roots)
+    if not allowed:
+        return {
+            "label": label,
+            "path": candidate.name or label,
+            "file_name": candidate.name or label,
+            "file_extension": candidate.suffix[1:].lower(),
+            "exists": False,
+            "size_label": "Unavailable",
+            "parent_folder": "",
+            "last_modified_label": None,
+            "access_issue": access_issue,
+        }
+    try:
+        exists = candidate.exists()
+    except OSError as error:
+        exists = False
+        access_issue = f"Unable to inspect path: {error}"
+    size_label = "Missing file"
+    last_modified_label = None
+    if exists:
+        try:
+            stat = candidate.stat()
+            size_label = f"{stat.st_size} bytes"
+            last_modified_label = dt.datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="minutes")
+        except OSError as error:
+            exists = False
+            size_label = "Unavailable"
+            access_issue = f"Unable to inspect path: {error}"
+    return {
+        "label": label,
+        "path": str(candidate),
+        "file_name": candidate.name or label,
+        "file_extension": candidate.suffix[1:].lower(),
+        "exists": exists,
+        "size_label": size_label,
+        "parent_folder": str(candidate.parent),
+        "last_modified_label": last_modified_label,
+        "access_issue": access_issue,
+    }
+
+
+def _native_project_snapshot(project: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(project.get("project_id", "")),
+        "title": str(project.get("title", "") or "Untitled Project"),
+        "wizard_step": str(project.get("wizard_step", "") or "setup"),
+        "last_status": str(project.get("last_status", "") or "draft"),
+        "workspace_path": str(project.get("workspace_path", "") or ""),
+        "latest_run_id": project.get("latest_run_id"),
+        "updated_at": str(project.get("updated_at", "") or ""),
+    }
+
+
+def _native_validation_snapshot(entry: dict[str, Any] | None, default_completed: bool = False) -> dict[str, Any]:
+    payload = dict(entry or {})
+    has_blockers = bool(payload.get("has_blockers"))
+    return {
+        "messages": list(payload.get("messages", []) or []),
+        "has_blockers": has_blockers,
+        "completed": bool(payload.get("completed", default_completed)) and not has_blockers,
+        "updated_at": payload.get("updated_at"),
+    }
+
+
+def _native_input_snapshot(project: dict[str, Any], data_root: Path) -> dict[str, Any]:
+    latest_validation = dict(project.get("latest_validation") or {})
+    latest_inputs = dict(latest_validation.get("inputs") or {})
+    idea = dict(project.get("idea") or {})
+    experimental = dict(project.get("experimental") or {})
+    template = dict(project.get("template") or {})
+    guidelines = dict(project.get("guidelines") or {})
+    uploads = dict(project.get("uploads") or {})
+    workspace = Path(str(project.get("workspace_path", ""))).expanduser()
+    allowed_roots = [workspace, storage.project_dir(str(project.get("project_id", "")), data_root), data_root / "uploads"]
+    figures = [_native_figure_snapshot(str(path), allowed_roots) for path in uploads.get("figures", []) or []]
+    return {
+        "status": str(latest_validation.get("status", "") or "draft"),
+        "summary": str(latest_validation.get("summary", "") or ""),
+        "has_blockers": bool(latest_validation.get("has_blockers")),
+        "updated_at": latest_validation.get("updated_at"),
+        "idea": {
+            "editor_mode": str(idea.get("editor_mode", "") or "structured"),
+            "problem_statement": str(idea.get("problem_statement", "") or ""),
+            "core_hypothesis": str(idea.get("core_hypothesis", "") or ""),
+            "methodology": str(idea.get("methodology", "") or ""),
+            "expected_contribution": str(idea.get("expected_contribution", "") or ""),
+            "notes": str(idea.get("notes", "") or ""),
+            "raw_markdown": str(idea.get("raw_markdown", "") or ""),
+            "validation": _native_validation_snapshot(latest_inputs.get("idea")),
+        },
+        "experimental": {
+            "editor_mode": str(experimental.get("editor_mode", "") or "structured"),
+            "setup_text": str(experimental.get("setup_text", "") or ""),
+            "raw_numeric_data": str(experimental.get("raw_numeric_data", "") or ""),
+            "qualitative_observations": str(experimental.get("qualitative_observations", "") or ""),
+            "log_text": str(experimental.get("log_text", "") or ""),
+            "source_filename": str(experimental.get("source_filename", "") or ""),
+            "validation": _native_validation_snapshot(latest_inputs.get("experimental")),
+        },
+        "template": {
+            "editor_mode": str(template.get("editor_mode", "") or "raw"),
+            "text": str(template.get("text", "") or ""),
+            "source_filename": str(template.get("source_filename", "") or ""),
+            "validation": _native_validation_snapshot(latest_inputs.get("template")),
+        },
+        "guidelines": {
+            "editor_mode": str(guidelines.get("editor_mode", "") or "structured"),
+            "deadline": str(guidelines.get("deadline", "") or ""),
+            "page_limit": str(guidelines.get("page_limit", "") or ""),
+            "required_sections": str(guidelines.get("required_sections", "") or ""),
+            "formatting_notes": str(guidelines.get("formatting_notes", "") or ""),
+            "guidelines_text": str(guidelines.get("guidelines_text", "") or ""),
+            "source_filename": str(guidelines.get("source_filename", "") or ""),
+            "validation": _native_validation_snapshot(latest_inputs.get("guidelines")),
+        },
+        "figures": {
+            "items": figures,
+            "validation": _native_validation_snapshot(latest_inputs.get("figures"), default_completed=not figures),
+        },
+    }
+
+
+def _native_figure_snapshot(path: str, allowed_roots: list[Path]) -> dict[str, Any]:
+    artifact = _native_artifact_snapshot(Path(path).name, path, allowed_roots=allowed_roots)
+    return {
+        "name": artifact["file_name"],
+        "path": artifact["path"],
+        "size_label": artifact["size_label"],
+        "is_missing": not artifact["exists"],
+    }
+
+
+def _native_performance_summary(payload: dict[str, Any] | None) -> str | None:
+    if not payload:
+        return None
+    parts: list[str] = []
+    if payload.get("wall_seconds") not in {None, ""}:
+        parts.append(f"{_native_format_seconds(float(payload['wall_seconds']))} wall")
+    if payload.get("total_cpu_seconds") not in {None, ""}:
+        parts.append(f"{_native_format_seconds(float(payload['total_cpu_seconds']))} CPU")
+    if payload.get("cpu_percent_of_one_core") not in {None, ""}:
+        parts.append(f"{round(float(payload['cpu_percent_of_one_core']))}% of one core")
+    return " · ".join(parts) or None
+
+
+def _native_format_seconds(value: float) -> str:
+    if value < 10:
+        return f"{value:.2f}s"
+    if value < 60:
+        return f"{value:.1f}s"
+    return f"{value:.0f}s"
+
+
+def _native_substep_snapshot(substep: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": str(substep.get("name", "") or ""),
+        "status": str(substep.get("status", "") or "pending"),
+        "summary": str(substep.get("summary", "") or ""),
+        "attention_message": (substep.get("attention_required") or {}).get("message"),
+        "performance_summary": _native_performance_summary(substep.get("performance")),
+    }
+
+
+def _native_stage_snapshot(name: str, stage_payload: dict[str, Any], allowed_roots: list[Path]) -> dict[str, Any]:
+    artifacts = [
+        _native_artifact_snapshot(Path(str(path)).name, str(path), allowed_roots=allowed_roots)
+        for path in stage_payload.get("artifacts", []) or []
+        if str(path)
+    ]
+    return {
+        "name": name,
+        "status": str(stage_payload.get("status", "") or "pending"),
+        "summary": str(stage_payload.get("summary", "") or ""),
+        "attention_message": (stage_payload.get("attention_required") or {}).get("message"),
+        "artifacts": artifacts,
+        "substeps": [
+            _native_substep_snapshot(substep)
+            for substep in stage_payload.get("substeps", []) or []
+            if isinstance(substep, dict)
+        ],
+        "performance_summary": _native_performance_summary(stage_payload.get("performance")),
+    }
+
+
+def _native_top_roadblocks(stages: list[dict[str, Any]]) -> list[dict[str, str]]:
+    roadblocks: list[dict[str, str]] = []
+    for stage in stages:
+        message = str(stage.get("attention_message") or "")
+        status = str(stage.get("status") or "")
+        if not message and status in {"failed", "paused", "interrupted"}:
+            message = str(stage.get("summary") or "Stage requires attention.")
+        if message:
+            roadblocks.append({
+                "stage_name": str(stage.get("name") or ""),
+                "message": message,
+                "status": status,
+            })
+    return roadblocks[:3]
+
+
+def _native_log_snapshot(kind: str, path: str, allowed_roots: list[Path]) -> dict[str, Any]:
+    candidate, allowed, access_issue = _safe_snapshot_path(path, allowed_roots)
+    if not allowed:
+        return {
+            "kind": kind,
+            "path": candidate.name or kind,
+            "text": "",
+            "line_count": 0,
+            "is_truncated": False,
+            "error_message": access_issue,
+        }
+    if not candidate.exists():
+        return {
+            "kind": kind,
+            "path": str(candidate),
+            "text": "",
+            "line_count": 0,
+            "is_truncated": False,
+            "error_message": "Log file does not exist.",
+        }
+    if not candidate.is_file():
+        return {
+            "kind": kind,
+            "path": str(candidate),
+            "text": "",
+            "line_count": 0,
+            "is_truncated": False,
+            "error_message": "Log path is not a regular file.",
+        }
+    try:
+        raw = candidate.read_bytes()
+    except OSError as error:
+        return {
+            "kind": kind,
+            "path": str(candidate),
+            "text": "",
+            "line_count": 0,
+            "is_truncated": False,
+            "error_message": f"Unable to read log file: {error}",
+        }
+    is_truncated = len(raw) > 65536
+    text = raw[-65536:].decode("utf-8", errors="replace")
+    if kind == "events":
+        text = _native_sanitize_log_text(text, allowed_roots)
+    lines = text.splitlines()
+    if len(lines) > 80:
+        is_truncated = True
+        lines = lines[-80:]
+    return {
+        "kind": kind,
+        "path": str(candidate),
+        "text": "\n".join(lines),
+        "line_count": len(lines),
+        "is_truncated": is_truncated,
+        "error_message": None,
+    }
+
+
+def _native_last_event(path: Path) -> tuple[str | None, str | None]:
+    if not path.exists():
+        return None, None
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not lines:
+        return None, None
+    try:
+        payload = json.loads(lines[-1])
+    except json.JSONDecodeError:
+        return None, None
+    return payload.get("type"), payload.get("at")
+
+
+def _native_run_diagnostics(project_id: str, run_payload: dict[str, Any], data_root: Path, allowed_roots: list[Path]) -> dict[str, Any]:
+    run_id = str(run_payload.get("run_id", "") or "")
+    run_root = storage.run_dir(project_id, run_id, data_root)
+    events_log_path = run_root / "events.jsonl"
+    last_event_type, last_event_at = _native_last_event(events_log_path)
+    stdout_path = run_payload.get("worker_stdout_log_path")
+    stderr_path = run_payload.get("worker_stderr_log_path")
+    logs: list[dict[str, Any]] = []
+    if stdout_path:
+        logs.append(_native_log_snapshot("stdout", str(stdout_path), allowed_roots))
+    if stderr_path:
+        logs.append(_native_log_snapshot("stderr", str(stderr_path), allowed_roots))
+    logs.append(_native_log_snapshot("events", str(events_log_path), allowed_roots))
+    pid_value = run_payload.get("worker_pid") or run_payload.get("pid")
+    return {
+        "worker_state": str(run_payload.get("worker_state") or ("missing" if not run_payload.get("pid") else run_payload.get("status", "unknown"))),
+        "pid": str(pid_value) if pid_value is not None else None,
+        "started_at": run_payload.get("worker_started_at") or run_payload.get("started_at"),
+        "stdout_log_path": _snapshot_path_display(str(stdout_path), allowed_roots) if stdout_path else None,
+        "stderr_log_path": _snapshot_path_display(str(stderr_path), allowed_roots) if stderr_path else None,
+        "run_folder_path": str(run_root),
+        "events_log_path": str(events_log_path),
+        "last_event_type": last_event_type,
+        "last_event_at": last_event_at,
+        "attention_message": (run_payload.get("attention_required") or {}).get("message"),
+        "logs": logs,
+    }
+
+
+def _native_run_snapshot(project: dict[str, Any], run_payload: dict[str, Any] | None, data_root: Path) -> dict[str, Any] | None:
+    if not run_payload:
+        return None
+    project_id = str(project.get("project_id", "") or "")
+    workspace_path = Path(str(project.get("workspace_path", ""))).expanduser()
+    run_root = storage.run_dir(project_id, str(run_payload.get("run_id", "") or ""), data_root)
+    allowed_roots = [workspace_path, storage.project_dir(project_id, data_root), run_root]
+    stage_names = list(run_payload.get("stage_order", []) or run_payload.get("stages", {}).keys())
+    stages = [
+        _native_stage_snapshot(stage_name, run_payload.get("stages", {}).get(stage_name, {}), allowed_roots)
+        for stage_name in stage_names
+    ]
+    artifacts: list[dict[str, Any]] = []
+    for item in _workspace_outputs(project):
+        artifacts.append(_native_artifact_snapshot(str(item.get("label", "")), str(item.get("path", "")), allowed_roots=allowed_roots))
+    for stage in stages:
+        artifacts.extend(stage.get("artifacts", []) or [])
+    for key, label in [("result_path", "Atlas Result"), ("log_path", "Run Log")]:
+        if run_payload.get(key):
+            artifacts.append(_native_artifact_snapshot(label, str(run_payload[key]), allowed_roots=allowed_roots))
+    for path in run_payload.get("screenshot_paths", []) or []:
+        artifacts.append(_native_artifact_snapshot(Path(str(path)).name, str(path), allowed_roots=allowed_roots))
+    deduped_artifacts: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for artifact in artifacts:
+        path = str(artifact.get("path", ""))
+        if not path or path in seen_paths:
+            continue
+        seen_paths.add(path)
+        deduped_artifacts.append(artifact)
+    final_pdf_path = workspace_path / "final" / "paper.pdf"
+    return {
+        "id": str(run_payload.get("run_id", "") or ""),
+        "source": "pipeline" if run_payload.get("kind") == "pipeline_v2" else "atlasLegacy",
+        "status": str(run_payload.get("status", "") or "queued"),
+        "current_stage": str(run_payload.get("current_stage") or run_payload.get("stage") or ""),
+        "summary": str(run_payload.get("summary", "") or ""),
+        "final_pdf_path": str(final_pdf_path) if final_pdf_path.exists() else None,
+        "artifacts": deduped_artifacts,
+        "stages": stages,
+        "top_roadblocks": _native_top_roadblocks(stages),
+        "diagnostics": _native_run_diagnostics(project_id, run_payload, data_root, allowed_roots),
+    }
+
+
+def _native_integration_snapshot(request: Request, data_root: Path) -> dict[str, Any]:
+    health = _integration_summary()
+    python_executable = storage.repo_python_executable()
+    python_configured = python_executable.exists() or shutil.which(str(python_executable)) is not None
+    data_root_readable = not data_root.exists() or os.access(data_root, os.R_OK)
+    data_root_issue = None
+    if not data_root_readable:
+        data_root_issue = f"The PaperOrchestra data root exists at {data_root} but is not readable by the current user."
+    return {
+        "backend_reachable": True,
+        "repo_configured": storage.REPO_ROOT.exists(),
+        "python_configured": python_configured,
+        "data_root_readable": data_root_readable,
+        "data_root_issue": data_root_issue,
+        "data_root": str(data_root),
+        "host": request.url.hostname or "127.0.0.1",
+        "port": request.url.port or 0,
+        "codex": health.get("codex", {}),
+        "atlas": health.get("atlas", {}),
+        "browser_adapter": health.get("browser_adapter", {}),
+        "figure_backend": health.get("figure_backend", {}),
+    }
 
 
 def _integration_summary() -> dict[str, object]:
@@ -803,6 +1231,47 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         return JSONResponse({
             "workspace_artifacts": _workspace_outputs(project),
             "run_artifacts": _run_artifacts(latest_run),
+        })
+
+    @app.get("/api/workspace/snapshot")
+    async def api_workspace_snapshot(
+        request: Request,
+        selected_project_id: str = "",
+        selected_run_id: str = "",
+        selected_stage_name: str = "",
+    ) -> JSONResponse:
+        data_root = _data_root(app)
+        projects = [
+            storage.reconcile_project_runs(project, data_root)
+            for project in storage.list_projects(data_root)
+        ]
+        selected_project = next(
+            (project for project in projects if project.get("project_id") == selected_project_id),
+            projects[0] if projects else None,
+        )
+        selected_run_payload = None
+        if selected_project:
+            if selected_run_id:
+                raw_run = storage.load_run(str(selected_project["project_id"]), selected_run_id, data_root)
+                if raw_run:
+                    selected_run_payload = _decorate_run_payload(storage.reconcile_run(raw_run, data_root))
+            else:
+                selected_run_payload = _decorate_run_payload(selected_project.get("latest_run"))
+        selected_run = _native_run_snapshot(selected_project, selected_run_payload, data_root) if selected_project else None
+        selected_stage = None
+        if selected_run:
+            stages = selected_run.get("stages", [])
+            selected_stage = next(
+                (stage for stage in stages if stage.get("name") == selected_stage_name),
+                next((stage for stage in stages if stage.get("name") == selected_run.get("current_stage")), stages[0] if stages else None),
+            )
+        return JSONResponse({
+            "projects": [_native_project_snapshot(project) for project in projects],
+            "selected_project": _native_project_snapshot(selected_project) if selected_project else None,
+            "selected_project_inputs": _native_input_snapshot(selected_project, data_root) if selected_project else None,
+            "selected_run": selected_run,
+            "selected_stage": selected_stage,
+            "integrations": _native_integration_snapshot(request, data_root),
         })
 
     @app.get("/projects/{project_id}", response_class=HTMLResponse)

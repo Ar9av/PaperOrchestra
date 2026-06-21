@@ -38,23 +38,33 @@ public final class LauncherWorkspaceCoordinator {
             settings: settings,
             selectedProjectID: selectedProjectID,
             selectedRunID: selectedRunID,
-            selectedStageName: selectedStageName
+            selectedStageName: selectedStageName,
+            backendURL: nil
         )
         reconcileSelection()
     }
 
     public func refresh(backendReachable: Bool) async {
+        await refresh(
+            backendURL: backendReachable ? resolvedBackendURL() : nil,
+            backendReachable: backendReachable
+        )
+    }
+
+    private func refresh(backendURL: URL?, backendReachable: Bool) async {
         let provider = workspaceProvider
         let currentSettings = settings
         let currentProjectID = selectedProjectID
         let currentRunID = selectedRunID
         let currentStageName = selectedStageName
+        let currentBackendURL = backendURL
         var updated = await Task.detached(priority: .utility) {
             provider.loadSnapshot(
                 settings: currentSettings,
                 selectedProjectID: currentProjectID,
                 selectedRunID: currentRunID,
-                selectedStageName: currentStageName
+                selectedStageName: currentStageName,
+                backendURL: currentBackendURL
             )
         }.value
         updated = LauncherWorkspaceSnapshot(
@@ -102,7 +112,8 @@ public final class LauncherWorkspaceCoordinator {
             settings: settings,
             selectedProjectID: selectedProjectID,
             selectedRunID: selectedRunID,
-            selectedStageName: selectedStageName
+            selectedStageName: selectedStageName,
+            backendURL: nil
         )
         reconcileSelection()
     }
@@ -123,7 +134,7 @@ public final class LauncherWorkspaceCoordinator {
         settings.lastSelectedProjectID = created.id
         settings.lastSelectedRunID = nil
         try? settingsStore.save(settings)
-        await refresh(backendReachable: backendURL != nil)
+        await refresh(backendURL: backendURL, backendReachable: backendURL != nil)
         return snapshot.selectedProject ?? created
     }
 
@@ -133,7 +144,8 @@ public final class LauncherWorkspaceCoordinator {
             settings: settings,
             selectedProjectID: selectedProjectID,
             selectedRunID: selectedRunID,
-            selectedStageName: selectedStageName
+            selectedStageName: selectedStageName,
+            backendURL: nil
         )
         reconcileSelection()
     }
@@ -167,7 +179,7 @@ public final class LauncherWorkspaceCoordinator {
               let runID = snapshot.selectedRun?.id
         else { return }
         try await runActionClient.cancelRun(settings: settings, backendURL: backendURL, projectID: projectID, runID: runID)
-        await refresh(backendReachable: backendURL != nil)
+        await refresh(backendURL: backendURL, backendReachable: backendURL != nil)
     }
 
     public func refreshSelectedRunProcessState(backendURL: URL? = nil) async throws {
@@ -183,7 +195,7 @@ public final class LauncherWorkspaceCoordinator {
             throw LauncherError.processLaunchFailed("No selected project is available.")
         }
         let status = try await inputActionClient.fetchInputStatus(settings: settings, backendURL: backendURL, projectID: projectID)
-        await refresh(backendReachable: backendURL != nil)
+        await refresh(backendURL: backendURL, backendReachable: backendURL != nil)
         return status
     }
 
@@ -201,7 +213,7 @@ public final class LauncherWorkspaceCoordinator {
             projectID: projectID,
             inputName: inputName
         )
-        await refresh(backendReachable: backendURL != nil)
+        await refresh(backendURL: backendURL, backendReachable: backendURL != nil)
         return validation
     }
 
@@ -220,7 +232,7 @@ public final class LauncherWorkspaceCoordinator {
             inputName: inputName,
             request: request
         )
-        await refresh(backendReachable: backendURL != nil)
+        await refresh(backendURL: backendURL, backendReachable: backendURL != nil)
     }
 
     public func removeSelectedFigure(figurePath: String, backendURL: URL? = nil) async throws {
@@ -233,7 +245,7 @@ public final class LauncherWorkspaceCoordinator {
             projectID: projectID,
             figurePath: figurePath
         )
-        await refresh(backendReachable: backendURL != nil)
+        await refresh(backendURL: backendURL, backendReachable: backendURL != nil)
     }
 
     public var canStartRun: Bool {
@@ -267,4 +279,12 @@ public final class LauncherWorkspaceCoordinator {
     }
 
     private static let cancellableRunStatuses: Set<String> = ["queued", "running", "paused", "interrupted"]
+
+    private func resolvedBackendURL() -> URL {
+        if let lastHealthyURL = settings.lastHealthyURL,
+           let url = URL(string: lastHealthyURL) {
+            return url
+        }
+        return settings.backendURL
+    }
 }

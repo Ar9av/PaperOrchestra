@@ -317,6 +317,32 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertTrue(viewModel.canStartRun)
     }
 
+    func test_startUsesBackendSnapshotWhenBackendStartupSucceeds() async throws {
+        let provider = FixtureWorkspaceProvider(
+            snapshots: [
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature"),
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "refinement"),
+            ]
+        )
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: provider,
+            notificationScheduler: NoopNotificationScheduler(),
+            backendSupervisorFactory: { _ in
+                SuccessfulBackendSupervisor(backendURL: URL(string: "http://127.0.0.1:9999")!)
+            }
+        )
+
+        await viewModel.start()
+        defer { viewModel.shutdown() }
+
+        XCTAssertEqual(viewModel.phase, .running)
+        XCTAssertEqual(viewModel.backendURL?.absoluteString, "http://127.0.0.1:9999")
+        XCTAssertEqual(provider.backendURLs, [nil, "http://127.0.0.1:9999"])
+        XCTAssertEqual(viewModel.snapshot.selectedStage?.name, "refinement")
+    }
+
     func test_backendOfflineNativeWorkspaceStillNavigatesCoreSurfaces() throws {
         let viewModel = try makeViewModel(
             snapshots: [
@@ -486,6 +512,7 @@ final class LauncherViewModelRoutingTests: XCTestCase {
 
 private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unchecked Sendable {
     private var snapshots: [LauncherWorkspaceSnapshot]
+    private(set) var backendURLs: [String?] = []
 
     init(
         snapshots: [LauncherWorkspaceSnapshot] = [
@@ -499,8 +526,10 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
         settings: LauncherSettings,
         selectedProjectID: String?,
         selectedRunID: String?,
-        selectedStageName: String?
+        selectedStageName: String?,
+        backendURL: URL?
     ) -> LauncherWorkspaceSnapshot {
+        backendURLs.append(backendURL?.absoluteString)
         if snapshots.count > 1 {
             return snapshots.removeFirst()
         }
@@ -791,6 +820,20 @@ private final class FailingBackendSupervisor: LauncherViewModel.BackendEnsuring,
 
     func ensureBackend() async throws -> BackendStartupResult {
         throw error
+    }
+
+    func terminateOwnedProcess() {}
+}
+
+private final class SuccessfulBackendSupervisor: LauncherViewModel.BackendEnsuring, @unchecked Sendable {
+    let backendURL: URL
+
+    init(backendURL: URL) {
+        self.backendURL = backendURL
+    }
+
+    func ensureBackend() async throws -> BackendStartupResult {
+        BackendStartupResult(mode: .reusedExisting, backendURL: backendURL)
     }
 
     func terminateOwnedProcess() {}
