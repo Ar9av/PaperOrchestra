@@ -432,6 +432,27 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(payload["detail"], "Project inputs have blockers.")
         self.assertTrue(payload["validation"]["has_blockers"])
 
+    def test_cross_origin_mutation_requests_are_rejected(self) -> None:
+        response = self.client.post(
+            "/api/projects",
+            json={"title": "Blocked Cross-Origin Paper"},
+            headers={"Origin": "https://malicious.example"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "cross_origin_forbidden")
+        self.assertEqual(storage.list_projects(self.data_root), [])
+
+    def test_same_origin_mutation_requests_are_allowed(self) -> None:
+        response = self.client.post(
+            "/api/projects",
+            json={"title": "Same-Origin Paper"},
+            headers={"Origin": "http://testserver"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["project"]["title"], "Same-Origin Paper")
+
     def test_api_start_run_returns_decorated_run_state(self) -> None:
         project = storage.create_project("Runnable API Paper", "", "", data_root=self.data_root)
 
@@ -685,6 +706,58 @@ class WebAppTests(unittest.TestCase):
         self.assertNotIn(str(secret_stderr_log), events_log["text"])
         self.assertIn(secret_log.name, events_log["text"])
         self.assertIn(secret_stderr_log.name, events_log["text"])
+
+    def test_stage_log_rejects_out_of_scope_stage_log_path(self) -> None:
+        project = storage.create_project("Stage Log Guard Paper", "", "", data_root=self.data_root)
+        run_payload = storage.create_pipeline_run(project["project_id"], self.data_root)
+        secret_log = Path(self.tempdir.name) / "secret-stage.log"
+        secret_log.write_text("TOP-SECRET-STAGE-LOG\n", encoding="utf-8")
+        run_payload["stages"]["outline"]["log_path"] = str(secret_log)
+        run_payload = storage.save_run(run_payload, self.data_root)
+
+        response = self.client.get(f"/api/projects/{project['project_id']}/runs/{run_payload['run_id']}/logs/outline")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("TOP-SECRET-STAGE-LOG", response.text)
+
+    def test_api_workspace_snapshot_surfaces_backend_worker_diagnostics(self) -> None:
+        process = mock.Mock()
+        process.pid = 77777
+        project = storage.create_project("Snapshot Worker Paper", "", "", data_root=self.data_root)
+
+        with mock.patch("gui_app.orchestrator.subprocess.Popen", return_value=process) as popen:
+            run_id = orchestrator.start_run(project["project_id"], self.data_root)
+        run_payload = storage.load_run(project["project_id"], run_id, self.data_root)
+        self.assertIsNotNone(run_payload)
+        assert run_payload is not None
+        stdout_path = Path(run_payload["worker_stdout_log_path"])
+        stderr_path = Path(run_payload["worker_stderr_log_path"])
+        self.assertEqual(Path(popen.call_args.kwargs["stdout"].name), stdout_path)
+        self.assertEqual(Path(popen.call_args.kwargs["stderr"].name), stderr_path)
+        self.assertNotEqual(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertNotEqual(popen.call_args.kwargs["stderr"], subprocess.DEVNULL)
+        stdout_path.write_text("stdout line\n", encoding="utf-8")
+        stderr_path.write_text("stderr warning\n", encoding="utf-8")
+
+        with mock.patch("gui_app.storage.is_pid_running", return_value=True):
+            response = self.client.get(
+                "/api/workspace/snapshot",
+                params={
+                    "selected_project_id": project["project_id"],
+                    "selected_run_id": run_id,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        diagnostics = response.json()["selected_run"]["diagnostics"]
+        self.assertEqual(diagnostics["worker_state"], "running")
+        self.assertEqual(diagnostics["pid"], "77777")
+        self.assertEqual(diagnostics["stdout_log_path"], str(stdout_path.resolve(strict=False)))
+        self.assertEqual(diagnostics["stderr_log_path"], str(stderr_path.resolve(strict=False)))
+        stdout_log = next(item for item in diagnostics["logs"] if item["kind"] == "stdout")
+        stderr_log = next(item for item in diagnostics["logs"] if item["kind"] == "stderr")
+        self.assertEqual(stdout_log["text"], "stdout line")
+        self.assertEqual(stderr_log["text"], "stderr warning")
 
     def test_inputs_step_renders_workbench_and_sections(self) -> None:
         project = storage.create_project("Inputs UI Paper", "", "", data_root=self.data_root)
@@ -1328,6 +1401,9 @@ class OrchestratorReplayTests(unittest.TestCase):
         self.assertIsNotNone(rebuilt)
         self.assertEqual(rebuilt["status"], "running")
         self.assertEqual(rebuilt["pid"], 42424)
+        self.assertEqual(rebuilt["worker_pid"], 42424)
+        self.assertEqual(rebuilt["worker_state"], "running")
+        self.assertIn("worker_started_at", rebuilt)
         self.assertEqual(rebuilt["current_stage"], "starting")
         spawn_worker.assert_called_once()
 
@@ -1344,6 +1420,33 @@ class OrchestratorReplayTests(unittest.TestCase):
 
         self.assertIsNotNone(rebuilt)
         self.assertEqual(rebuilt["status"], "cancelled")
+        self.assertEqual(rebuilt["worker_state"], "cancelled")
+
+    def test_reconcile_run_marks_dead_worker_stale_and_replays_state(self) -> None:
+        project = storage.create_project("Replay Stale", "", "", data_root=self.data_root)
+        run_payload = storage.create_pipeline_run(project["project_id"], self.data_root)
+        run_payload = storage.update_run_fields(
+            project["project_id"],
+            run_payload["run_id"],
+            self.data_root,
+            event_type="run_started",
+            pid=91919,
+            worker_pid=91919,
+            worker_state="running",
+            status="running",
+            current_stage="outline",
+            stage="outline",
+        )
+
+        with mock.patch("gui_app.storage.is_pid_running", return_value=False):
+            reconciled = storage.reconcile_run(run_payload, self.data_root)
+
+        self.assertEqual(reconciled["status"], "interrupted")
+        self.assertEqual(reconciled["worker_state"], "stale")
+        storage.run_state_file(project["project_id"], run_payload["run_id"], self.data_root).unlink()
+        rebuilt = storage.load_run(project["project_id"], run_payload["run_id"], self.data_root)
+        self.assertEqual(rebuilt["status"], "interrupted")
+        self.assertEqual(rebuilt["worker_state"], "stale")
 
     @mock.patch("gui_app.orchestrator._spawn_worker", return_value=62626)
     def test_retry_stage_rewinds_to_earliest_unsatisfied_dependency(self, spawn_worker: mock.Mock) -> None:

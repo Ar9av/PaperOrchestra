@@ -3956,6 +3956,7 @@ def main() -> int:
             execute_pipeline(args.project_id, args.run_id, data_root)
         else:
             execute_orchestrated(args.project_id, args.run_id, data_root, resume_from=args.resume_from)
+        update_run(args.project_id, args.run_id, data_root, worker_state="succeeded")
         return 0
     except RunNeedsInput as exc:
         current = storage.load_run(args.project_id, args.run_id, data_root) or {}
@@ -3967,6 +3968,7 @@ def main() -> int:
             stage=current.get("stage", "paused"),
             current_stage=current.get("current_stage", current.get("stage", "paused")),
             finished_at=storage.utc_now(),
+            worker_state="paused",
             summary=str(exc),
         )
         return 1
@@ -3975,6 +3977,14 @@ def main() -> int:
         log_path = Path(run_payload.get("log_path", storage.run_dir(args.project_id, args.run_id, data_root) / "run.log"))
         append_log(log_path, f"ERROR: {exc}")
         append_log(log_path, traceback.format_exc())
+        if run_payload.get("status") == "cancelled" or run_payload.get("cancel_requested_at"):
+            update_run(
+                args.project_id,
+                args.run_id,
+                data_root,
+                worker_state="cancelled",
+            )
+            return 1
         update_run(
             args.project_id,
             args.run_id,
@@ -3983,6 +3993,7 @@ def main() -> int:
             stage="failed",
             current_stage="failed",
             finished_at=storage.utc_now(),
+            worker_state="failed",
             summary=str(exc),
         )
         project = storage.load_project(args.project_id, data_root)
