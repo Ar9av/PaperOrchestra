@@ -130,6 +130,33 @@ struct LauncherWorkspaceCoordinatorTests {
 
         #expect(!FileManager.default.fileExists(atPath: settingsURL.path))
     }
+
+    @Test
+    func selectedRunActionsForwardBackendURLToRunClient() async throws {
+        let runActionClient = RecordingCoordinatorRunActionClient()
+        let controller = LauncherWorkspaceCoordinator(
+            settings: LauncherSettings.defaultValue(),
+            settingsStore: LauncherSettingsStore(settingsURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            workspaceProvider: FakeWorkspaceProvider(snapshot: .sample(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature")),
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler()),
+            runActionClient: runActionClient
+        )
+        let backendURL = URL(string: "http://127.0.0.1:8765")!
+
+        try await controller.startSelectedProjectRun(backendURL: backendURL)
+        try await controller.retrySelectedStage(backendURL: backendURL)
+        try await controller.resumeSelectedRun(backendURL: backendURL)
+        try await controller.cancelSelectedRun(backendURL: backendURL)
+        try await controller.refreshSelectedRunProcessState(backendURL: backendURL)
+
+        #expect(await runActionClient.calls == [
+            .start("http://127.0.0.1:8765"),
+            .retry("http://127.0.0.1:8765", "literature"),
+            .resume("http://127.0.0.1:8765"),
+            .cancel("http://127.0.0.1:8765"),
+            .refresh("http://127.0.0.1:8765"),
+        ])
+    }
 }
 
 struct BackendSupervisorTests {
@@ -523,6 +550,38 @@ private actor FakeNotificationScheduler: LauncherNotificationScheduling {
 
     func notify(title: String, body: String) async {
         messages.append(Message(title: title, body: body))
+    }
+}
+
+private actor RecordingCoordinatorRunActionClient: LauncherRunActionPerforming {
+    enum Call: Equatable {
+        case start(String?)
+        case resume(String?)
+        case retry(String?, String)
+        case cancel(String?)
+        case refresh(String?)
+    }
+
+    private(set) var calls: [Call] = []
+
+    func startRun(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws {
+        calls.append(.start(backendURL?.absoluteString))
+    }
+
+    func resumeRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        calls.append(.resume(backendURL?.absoluteString))
+    }
+
+    func retryStage(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String, stageName: String) async throws {
+        calls.append(.retry(backendURL?.absoluteString, stageName))
+    }
+
+    func cancelRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        calls.append(.cancel(backendURL?.absoluteString))
+    }
+
+    func refreshRunProcess(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        calls.append(.refresh(backendURL?.absoluteString))
     }
 }
 

@@ -1,11 +1,155 @@
 import Foundation
 
 public protocol LauncherRunActionPerforming: Sendable {
-    func startRun(settings: LauncherSettings, projectID: String) async throws
-    func resumeRun(settings: LauncherSettings, projectID: String, runID: String) async throws
-    func retryStage(settings: LauncherSettings, projectID: String, runID: String, stageName: String) async throws
-    func cancelRun(settings: LauncherSettings, projectID: String, runID: String) async throws
-    func refreshRunProcess(settings: LauncherSettings, projectID: String, runID: String) async throws
+    func startRun(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws
+    func resumeRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws
+    func retryStage(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String, stageName: String) async throws
+    func cancelRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws
+    func refreshRunProcess(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws
+}
+
+public struct LauncherRunActionClient: LauncherRunActionPerforming {
+    private let apiClient: LauncherRunAPIClient
+    private let localClient: any LauncherRunActionPerforming
+
+    public init(
+        apiClient: LauncherRunAPIClient = LauncherRunAPIClient(),
+        localClient: any LauncherRunActionPerforming = LauncherNativeRunActionClient()
+    ) {
+        self.apiClient = apiClient
+        self.localClient = localClient
+    }
+
+    public func startRun(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws {
+        if let backendURL {
+            try await apiClient.startRun(backendURL: backendURL, projectID: projectID)
+        } else {
+            try await localClient.startRun(settings: settings, backendURL: nil, projectID: projectID)
+        }
+    }
+
+    public func resumeRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        if let backendURL {
+            try await apiClient.resumeRun(backendURL: backendURL, projectID: projectID, runID: runID)
+        } else {
+            try await localClient.resumeRun(settings: settings, backendURL: nil, projectID: projectID, runID: runID)
+        }
+    }
+
+    public func retryStage(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String, stageName: String) async throws {
+        if let backendURL {
+            try await apiClient.retryStage(backendURL: backendURL, projectID: projectID, runID: runID, stageName: stageName)
+        } else {
+            try await localClient.retryStage(settings: settings, backendURL: nil, projectID: projectID, runID: runID, stageName: stageName)
+        }
+    }
+
+    public func cancelRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        if let backendURL {
+            try await apiClient.cancelRun(backendURL: backendURL, projectID: projectID, runID: runID)
+        } else {
+            try await localClient.cancelRun(settings: settings, backendURL: nil, projectID: projectID, runID: runID)
+        }
+    }
+
+    public func refreshRunProcess(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        if let backendURL {
+            try await apiClient.refreshRun(backendURL: backendURL, projectID: projectID, runID: runID)
+        } else {
+            try await localClient.refreshRunProcess(settings: settings, backendURL: nil, projectID: projectID, runID: runID)
+        }
+    }
+}
+
+public struct LauncherRunAPIClient: Sendable {
+    private let session: URLSession
+
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    public func startRun(backendURL: URL, projectID: String) async throws {
+        try await performRunRequest(
+            backendURL: backendURL,
+            path: "api/projects/\(projectID)/runs/start",
+            method: "POST",
+            actionName: "start run"
+        )
+    }
+
+    public func resumeRun(backendURL: URL, projectID: String, runID: String) async throws {
+        try await performRunRequest(
+            backendURL: backendURL,
+            path: "api/projects/\(projectID)/runs/\(runID)/resume",
+            method: "POST",
+            actionName: "resume run"
+        )
+    }
+
+    public func retryStage(backendURL: URL, projectID: String, runID: String, stageName: String) async throws {
+        try await performRunRequest(
+            backendURL: backendURL,
+            path: "api/projects/\(projectID)/runs/\(runID)/retry/\(stageName)",
+            method: "POST",
+            actionName: "retry stage"
+        )
+    }
+
+    public func cancelRun(backendURL: URL, projectID: String, runID: String) async throws {
+        try await performRunRequest(
+            backendURL: backendURL,
+            path: "api/projects/\(projectID)/runs/\(runID)/cancel",
+            method: "POST",
+            actionName: "cancel run"
+        )
+    }
+
+    public func refreshRun(backendURL: URL, projectID: String, runID: String) async throws {
+        try await performRunRequest(
+            backendURL: backendURL,
+            path: "api/projects/\(projectID)/runs/\(runID)",
+            method: "GET",
+            actionName: "refresh run"
+        )
+    }
+
+    private func performRunRequest(
+        backendURL: URL,
+        path: String,
+        method: String,
+        actionName: String
+    ) async throws {
+        var request = URLRequest(url: backendURL.appending(path: path))
+        request.httpMethod = method
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw LauncherError.processLaunchFailed("Run action returned a non-HTTP response.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw LauncherError.processLaunchFailed(
+                "Run action failed to \(actionName): \(Self.errorMessage(from: data, statusCode: http.statusCode))"
+            )
+        }
+    }
+
+    private static func errorMessage(from data: Data, statusCode: Int) -> String {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return String(data: data, encoding: .utf8) ?? "HTTP \(statusCode)"
+        }
+        if let message = payload["message"] as? String, !message.isEmpty {
+            return message
+        }
+        if let detail = payload["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+        if let error = payload["error"] as? String, !error.isEmpty {
+            return error
+        }
+        if let status = payload["status"] as? String, !status.isEmpty {
+            return status
+        }
+        return "HTTP \(statusCode)"
+    }
 }
 
 public protocol LauncherRunWorkerLaunching: Sendable {
@@ -75,6 +219,26 @@ public struct LauncherNativeRunActionClient: LauncherRunActionPerforming {
         self.inputClient = inputClient
         self.processRegistry = processRegistry
         self.processController = processController
+    }
+
+    public func startRun(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws {
+        try await startRun(settings: settings, projectID: projectID)
+    }
+
+    public func resumeRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        try await resumeRun(settings: settings, projectID: projectID, runID: runID)
+    }
+
+    public func retryStage(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String, stageName: String) async throws {
+        try await retryStage(settings: settings, projectID: projectID, runID: runID, stageName: stageName)
+    }
+
+    public func cancelRun(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        try await cancelRun(settings: settings, projectID: projectID, runID: runID)
+    }
+
+    public func refreshRunProcess(settings: LauncherSettings, backendURL: URL?, projectID: String, runID: String) async throws {
+        try await refreshRunProcess(settings: settings, projectID: projectID, runID: runID)
     }
 
     public func startRun(settings: LauncherSettings, projectID: String) async throws {
