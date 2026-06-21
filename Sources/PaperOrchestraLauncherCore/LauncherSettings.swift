@@ -43,7 +43,7 @@ public struct LauncherSettings: Codable, Equatable, Sendable {
         )
     }
 
-    public var controlRoomURL: URL {
+    public var backendURL: URL {
         URL(string: "http://\(host):\(port)")!
     }
 

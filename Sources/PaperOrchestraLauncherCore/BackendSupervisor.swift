@@ -7,11 +7,11 @@ public enum StartupMode: Sendable, Equatable {
 
 public struct BackendStartupResult: Sendable, Equatable {
     public let mode: StartupMode
-    public let controlRoomURL: URL
+    public let backendURL: URL
 
-    public init(mode: StartupMode, controlRoomURL: URL) {
+    public init(mode: StartupMode, backendURL: URL) {
         self.mode = mode
-        self.controlRoomURL = controlRoomURL
+        self.backendURL = backendURL
     }
 }
 
@@ -106,9 +106,9 @@ public final class BackendSupervisor: @unchecked Sendable {
     }
 
     public func ensureBackend() async throws -> BackendStartupResult {
-        let controlRoomURL = settings.controlRoomURL
-        if await healthChecker.probe(controlRoomURL.appending(path: "health")) {
-            return BackendStartupResult(mode: .reusedExisting, controlRoomURL: controlRoomURL)
+        let backendURL = settings.backendURL
+        if await healthChecker.probe(backendURL.appending(path: "health")) {
+            return BackendStartupResult(mode: .reusedExisting, backendURL: backendURL)
         }
 
         guard fileManager.fileExists(atPath: settings.repoRoot.path) else {
@@ -133,8 +133,8 @@ public final class BackendSupervisor: @unchecked Sendable {
         let clock = ContinuousClock()
         let deadline = clock.now + startupTimeout
         while clock.now < deadline {
-            if await healthChecker.probe(controlRoomURL.appending(path: "health")) {
-                return BackendStartupResult(mode: .launched, controlRoomURL: controlRoomURL)
+            if await healthChecker.probe(backendURL.appending(path: "health")) {
+                return BackendStartupResult(mode: .launched, backendURL: backendURL)
             }
             if !process.isRunning {
                 throw LauncherError.processExited(errorTail(from: process, fallback: "PaperOrchestra backend exited before becoming healthy."))
@@ -169,6 +169,7 @@ public final class BackendSupervisor: @unchecked Sendable {
         return trimmed.isEmpty ? fallback : trimmed
     }
 }
+
 
 public struct URLSessionHealthChecker: HealthChecking {
     private let session: URLSession

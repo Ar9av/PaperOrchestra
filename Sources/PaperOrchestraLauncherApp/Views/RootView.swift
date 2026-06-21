@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WebKit
 import PaperOrchestraLauncherCore
 
 struct RootView: View {
@@ -13,7 +12,7 @@ struct RootView: View {
             case .launching:
                 LauncherLoadingState(
                     title: "Starting PaperOrchestra…",
-                    message: "Preparing the native launcher and reconnecting to the control room.",
+                    message: "Preparing the native launcher and reconnecting to the local workflow engine.",
                     systemImage: "wand.and.stars"
                 )
             case .configuration(let message):
@@ -23,12 +22,15 @@ struct RootView: View {
             case .running:
                 NavigationSplitView {
                     LauncherSidebarView(viewModel: viewModel)
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
+                } content: {
+                    WorkspaceRouterView(viewModel: viewModel)
+                        .frame(minWidth: 720, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .navigationSplitViewColumnWidth(min: 680, ideal: 860, max: 1100)
                 } detail: {
-                    HSplitView {
-                        WorkspaceRouterView(viewModel: viewModel)
-                        LauncherInspectorView(viewModel: viewModel)
-                            .frame(minWidth: 300, idealWidth: 340, maxWidth: 380)
-                    }
+                    LauncherInspectorView(viewModel: viewModel)
+                        .frame(minWidth: 300, idealWidth: 340, maxWidth: 380, maxHeight: .infinity, alignment: .topLeading)
+                        .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 380)
                 }
                 .navigationSplitViewStyle(.balanced)
             }
@@ -56,6 +58,11 @@ struct LauncherToolbarContent: ToolbarContent {
                 viewModel.retryStage()
             }
             .disabled(!viewModel.canRetryStage)
+
+            Button("Cancel", systemImage: "stop.fill") {
+                viewModel.cancelRun()
+            }
+            .disabled(!viewModel.canCancelRun)
         }
 
         ToolbarItemGroup(placement: .secondaryAction) {
@@ -82,19 +89,99 @@ struct LauncherMainContentView: View {
         VStack(spacing: 0) {
             LauncherHeaderView(viewModel: viewModel)
             Divider()
-            if let url = viewModel.controlRoomURL {
-                if viewModel.snapshot.integrations.backendReachable {
-                    LauncherWebView(url: url, reloadToken: viewModel.reloadToken)
-                } else {
-                    LauncherEmbeddedRecoveryState(viewModel: viewModel, url: url)
-                }
+            if viewModel.snapshot.integrations.backendReachable {
+                LauncherNativeWorkspaceState(viewModel: viewModel)
+            } else if let url = viewModel.backendURL {
+                LauncherEmbeddedRecoveryState(viewModel: viewModel, url: url)
             } else {
                 LauncherLoadingState(
                     title: "Connecting…",
-                    message: "Waiting for the local control room to become available.",
+                    message: "Waiting for the local workflow engine to become available.",
                     systemImage: "network"
                 )
             }
+        }
+        .background(.background)
+    }
+}
+
+private struct LauncherNativeWorkspaceState: View {
+    @ObservedObject var viewModel: LauncherViewModel
+
+    var body: some View {
+        LauncherWorkspaceScaffold(
+            title: viewModel.snapshot.selectedProject?.title ?? "PaperOrchestra",
+            summary: "Native SwiftUI workspace. The optional web fallback remains available for diagnostics without embedding a web surface."
+        ) {
+            VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.large) {
+                PremiumCard {
+                    VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.medium) {
+                        Label("Native Workspace", systemImage: "macwindow")
+                            .font(LauncherTypography.cardTitle)
+                        Text("Use the sidebar workspaces for setup, inputs, review, run control, and outputs. The web fallback is only exposed as an explicit external recovery option.")
+                            .font(LauncherTypography.body)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                HStack(spacing: LauncherDesignTokens.Spacing.small) {
+                    Button("Open Setup", systemImage: "gearshape") {
+                        viewModel.selectWorkflowDestination(.setup)
+                    }
+                    Button("Open Inputs", systemImage: "square.and.pencil") {
+                        viewModel.selectWorkflowDestination(.inputs(panel: viewModel.workspaceSelection.selectedInputPanel ?? .idea))
+                    }
+                    Button("Open Run", systemImage: "play.circle") {
+                        viewModel.selectWorkflowDestination(.run)
+                    }
+                    .disabled(viewModel.snapshot.selectedRun == nil)
+                    Button("Open Outputs", systemImage: "doc.richtext") {
+                        viewModel.selectWorkflowDestination(.outputs)
+                    }
+                    .disabled(viewModel.snapshot.selectedRun == nil)
+                }
+                .buttonStyle(LauncherSecondaryButtonStyle())
+            }
+        }
+    }
+}
+
+struct LauncherWorkspaceScaffold<Content: View>: View {
+    let title: String
+    let summary: String
+    let idealWidth: CGFloat
+    let content: Content
+
+    init(
+        title: String,
+        summary: String,
+        idealWidth: CGFloat = 820,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.summary = summary
+        self.idealWidth = idealWidth
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.large) {
+                VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.xSmall) {
+                    Text(title)
+                        .font(LauncherTypography.windowTitle)
+                    Text(summary)
+                        .font(LauncherTypography.body)
+                        .foregroundStyle(.secondary)
+                }
+
+                content
+            }
+            .frame(maxWidth: idealWidth, alignment: .topLeading)
+            .padding(LauncherDesignTokens.Spacing.screenPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(.background)
     }
@@ -166,7 +253,7 @@ private struct LauncherHeaderView: View {
         if let summary = viewModel.snapshot.selectedRun?.summary, !summary.isEmpty {
             return summary
         }
-        return "The embedded control room remains the authoritative workflow surface."
+        return "The native launcher is the primary workflow surface."
     }
 
     private func prettyStageName(_ name: String) -> String {
@@ -272,17 +359,14 @@ private struct LauncherEmbeddedRecoveryState: View {
 
     var body: some View {
         LauncherErrorState(
-            title: "Control room temporarily unavailable",
-            message: "The local backend stopped responding. The launcher will keep trying, and you can force a reconnect or inspect logs now."
+            title: "Web fallback temporarily unavailable",
+            message: "The local web fallback stopped responding. Native controls remain available while the launcher keeps trying to reconnect it."
         ) {
             HStack {
                 Button("Reconnect") {
                     viewModel.retry()
                 }
                 .keyboardShortcut(.defaultAction)
-                Button("Reload Web View") {
-                    viewModel.reload()
-                }
                 Button("Open in Browser") {
                     NSWorkspace.shared.open(url)
                 }
@@ -309,40 +393,6 @@ private struct LauncherMetaChip: View {
                     .font(LauncherTypography.detail)
                     .lineLimit(1)
             }
-        }
-    }
-}
-
-private struct LauncherWebView: NSViewRepresentable {
-    let url: URL
-    let reloadToken: UUID
-
-    func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero)
-        webView.load(URLRequest(url: url))
-        return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        if webView.url != url {
-            webView.load(URLRequest(url: url))
-            return
-        }
-        if context.coordinator.reloadToken != reloadToken {
-            context.coordinator.reloadToken = reloadToken
-            webView.reload()
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(reloadToken: reloadToken)
-    }
-
-    final class Coordinator {
-        var reloadToken: UUID
-
-        init(reloadToken: UUID) {
-            self.reloadToken = reloadToken
         }
     }
 }

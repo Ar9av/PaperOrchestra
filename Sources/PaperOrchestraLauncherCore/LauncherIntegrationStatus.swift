@@ -16,13 +16,14 @@ public struct LauncherIntegrationStatus: Equatable, Sendable, Identifiable {
     public static func defaultStatuses(
         backendReachable: Bool,
         repoConfigured: Bool,
-        pythonConfigured: Bool
+        pythonConfigured: Bool,
+        dataRootReadable: Bool
     ) -> [LauncherIntegrationStatus] {
         [
             LauncherIntegrationStatus(
-                label: "Backend",
-                statusText: backendReachable ? "Reachable" : "Unreachable",
-                tone: backendReachable ? "succeeded" : "failed"
+                label: "Web Fallback",
+                statusText: backendReachable ? "Available" : "Offline",
+                tone: backendReachable ? "succeeded" : "paused"
             ),
             LauncherIntegrationStatus(
                 label: "Repo",
@@ -33,6 +34,11 @@ public struct LauncherIntegrationStatus: Equatable, Sendable, Identifiable {
                 label: "Python",
                 statusText: pythonConfigured ? "Active" : "Inactive",
                 tone: pythonConfigured ? "succeeded" : "paused"
+            ),
+            LauncherIntegrationStatus(
+                label: "Data",
+                statusText: dataRootReadable ? "Readable" : "Locked",
+                tone: dataRootReadable ? "succeeded" : "failed"
             ),
         ]
     }

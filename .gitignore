@@ -4,6 +4,10 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.build/
+dist/
+dist-test/
+script/.tmp/
 
 # LaTeX aux
 *.aux
@@ -19,6 +23,18 @@ venv/
 # Workspaces users create with init_workspace.py
 workspace/
 workspaces/
+.paperorchestra-gui/
+output/
+gui-data/
+projects_index.json
+test-results/
+tmp/
+.superpowers/
+.codex/xcode27/
+.agents/skills/
+.claude/skills/
+.cursor/skills/
+.windsurf/skills/
 
 # OS
 .DS_Store

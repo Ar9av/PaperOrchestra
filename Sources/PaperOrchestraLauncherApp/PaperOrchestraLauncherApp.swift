@@ -18,50 +18,38 @@ enum MacWindowSupport {
 @main
 struct PaperOrchestraLauncherApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var viewModel = LauncherViewModel()
 
     var body: some Scene {
-        Window("PaperOrchestra", id: "main") {
-            RootView(viewModel: viewModel)
-                .frame(minWidth: 1260, minHeight: 840)
-                .task {
-                    await viewModel.bootstrap()
-                }
-                .toolbar {
-                    LauncherToolbarContent(viewModel: viewModel)
-                }
-                .onAppear {
-                    appDelegate.shutdownHandler = {
-                        viewModel.shutdown()
-                    }
-                }
-        }
-
         Settings {
-            LauncherSettingsScreen(viewModel: viewModel)
+            LauncherSettingsScreen(viewModel: appDelegate.viewModel)
                 .frame(width: 560)
                 .padding(LauncherDesignTokens.Spacing.screenPadding)
         }
         .commands {
             CommandGroup(after: .appInfo) {
-                Button("Open Control Room") {
-                    viewModel.openControlRoomInBrowser()
+                Button("Show Main Window") {
+                    appDelegate.showMainWindow()
+                }
+                .keyboardShortcut("n", modifiers: [.command])
+
+                Button("Open Web Fallback") {
+                    appDelegate.viewModel.openBackendFallback()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .option])
 
-                Button("Reload") {
-                    viewModel.reload()
+                Button("Refresh Native State") {
+                    appDelegate.viewModel.reload()
                 }
                 .keyboardShortcut("r", modifiers: [.command])
 
                 Divider()
 
                 Button("Open Data Folder") {
-                    viewModel.openDataFolder()
+                    appDelegate.viewModel.openDataFolder()
                 }
 
                 Button("Open Logs") {
-                    viewModel.openLogsFolder()
+                    appDelegate.viewModel.openLogsFolder()
                 }
 
                 Button("Settings") {
@@ -73,14 +61,21 @@ struct PaperOrchestraLauncherApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var shutdownHandler: (() -> Void)?
+    let viewModel = LauncherViewModel()
+    private var mainWindow: NSWindow?
+    private var bootstrapStarted = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        DispatchQueue.main.async { [weak self] in
-            self?.positionPrimaryWindow()
+        showMainWindow()
+        if !bootstrapStarted {
+            bootstrapStarted = true
+            Task {
+                await viewModel.bootstrap()
+            }
         }
         Task {
             try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge, .sound, .alert])
@@ -88,13 +83,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        shutdownHandler?()
+        viewModel.shutdown()
     }
 
-    @MainActor
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        sender.activate(ignoringOtherApps: true)
+        return true
+    }
+
+    func showMainWindow() {
+        if mainWindow == nil {
+            let rootView = RootView(viewModel: viewModel)
+                .frame(minWidth: 1180, minHeight: 820)
+                .toolbar {
+                    LauncherToolbarContent(viewModel: viewModel)
+                }
+            let hostingController = NSHostingController(rootView: rootView)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "PaperOrchestra"
+            window.identifier = NSUserInterfaceItemIdentifier("main")
+            window.contentViewController = hostingController
+            window.isReleasedWhenClosed = false
+            mainWindow = window
+        }
+        positionPrimaryWindow()
+        mainWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     private func positionPrimaryWindow() {
         guard
-            let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" || $0.title == "PaperOrchestra" || $0.canBecomeMain }),
+            let window = mainWindow ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "main" || $0.title == "PaperOrchestra" || $0.canBecomeMain }),
             let visible = MacWindowSupport.preferredVisibleFrame()
         else {
             return

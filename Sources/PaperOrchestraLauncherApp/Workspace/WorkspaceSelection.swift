@@ -1,5 +1,7 @@
 import Foundation
 
+import PaperOrchestraLauncherCore
+
 enum WorkspaceInputPanel: String, CaseIterable, Equatable {
     case idea
     case experimental
@@ -32,5 +34,37 @@ struct WorkspaceSelection: Equatable {
             selectedStageName: nil,
             selectedArtifactPath: nil
         )
+    }
+}
+
+extension WorkspaceInputPanel {
+    var title: String {
+        switch self {
+        case .idea:
+            return "Idea"
+        case .experimental:
+            return "Experimental Log"
+        case .template:
+            return "Template"
+        case .guidelines:
+            return "Guidelines"
+        case .figures:
+            return "Figures"
+        }
+    }
+
+    var inputName: LauncherInputName {
+        switch self {
+        case .idea:
+            return .idea
+        case .experimental:
+            return .experimental
+        case .template:
+            return .template
+        case .guidelines:
+            return .guidelines
+        case .figures:
+            return .figures
+        }
     }
 }

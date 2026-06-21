@@ -57,6 +57,7 @@ import argparse
 import asyncio
 import base64
 import os
+import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -72,14 +73,276 @@ _VALID_ASPECT_RATIOS = {
 
 
 def _paperbanana_path() -> Path | None:
-    raw = os.environ.get("PAPERBANANA_PATH", "").strip()
-    if not raw:
-        return None
-    p = Path(raw)
-    # Sanity-check that it looks like a PaperBanana clone
-    if not (p / "utils" / "paperviz_processor.py").exists():
-        return None
-    return p
+    for key in ("PAPERBANANA_PATH", "PAPERVIZAGENT_PATH"):
+        raw = os.environ.get(key, "").strip()
+        if not raw:
+            continue
+        p = Path(raw)
+        # Sanity-check that it looks like a PaperBanana / PaperVizAgent clone
+        if (p / "utils" / "paperviz_processor.py").exists():
+            return p
+    return None
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _load_runtime_env() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    for path in (
+        Path.home() / ".paperorchestra" / "config",
+        repo_root / ".env",
+        Path("/Users/jeff/Codex_projects/PaperBanana/.env"),
+    ):
+        _load_env_file(path)
+
+
+def _maybe_reexec_with_paperbanana_python() -> None:
+    pb = _paperbanana_path()
+    if pb is None:
+        return
+    python = pb / ".venv" / "bin" / "python"
+    if not python.exists():
+        return
+    if Path(sys.executable).resolve() == python.resolve():
+        return
+    os.execve(str(python), [str(python), __file__, *sys.argv[1:]], os.environ.copy())
+
+
+def _dependency_status(pb: Path) -> list[tuple[str, bool, str]]:
+    import importlib.util
+
+    sys.path.insert(0, str(pb))
+    modules = [
+        "yaml",
+        "numpy",
+        "PIL",
+        "google.genai",
+        "aiofiles",
+        "json_repair",
+        "anthropic",
+        "openai",
+        "matplotlib",
+        "huggingface_hub",
+        "tqdm",
+        "utils.paperviz_processor",
+        "agents.vanilla_agent",
+        "agents.planner_agent",
+        "agents.visualizer_agent",
+        "agents.stylist_agent",
+        "agents.critic_agent",
+        "agents.retriever_agent",
+        "agents.polish_agent",
+    ]
+    status: list[tuple[str, bool, str]] = []
+    for module in modules:
+        try:
+            found = importlib.util.find_spec(module) is not None
+            status.append((module, found, "" if found else "not found"))
+        except Exception as exc:
+            status.append((module, False, f"{type(exc).__name__}: {exc}"))
+    return status
+
+
+def _model_api_key_configured(pb: Path) -> bool:
+    if any(
+        os.environ.get(key, "").strip()
+        for key in ("GOOGLE_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+    ):
+        return True
+    config_path = pb / "configs" / "model_config.yaml"
+    if not config_path.exists():
+        return False
+    try:
+        import yaml
+
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return False
+    api_keys = payload.get("api_keys") or {}
+    return any(
+        str(api_keys.get(key, "") or "").strip()
+        for key in ("google_api_key", "openrouter_api_key", "openai_api_key", "anthropic_api_key")
+    )
+
+
+def _env_bool(key: str, default: bool = True) -> bool:
+    raw_value = str(os.environ.get(key, "") or "").strip().lower()
+    if not raw_value:
+        return default
+    return raw_value not in {"0", "false", "no", "off"}
+
+
+def _codex_handoff_enabled() -> bool:
+    return _env_bool("PAPERBANANA_CODEX_IMAGE_HANDOFF", default=True)
+
+
+def _codex_model() -> str:
+    return (
+        os.environ.get("PAPERBANANA_CODEX_MODEL", "").strip()
+        or os.environ.get("PAPERORCHESTRA_CODEX_MODEL", "").strip()
+        or "gpt-5.5"
+    )
+
+
+def _codex_reasoning_effort() -> str:
+    return (
+        os.environ.get("PAPERBANANA_CODEX_REASONING_EFFORT", "").strip()
+        or os.environ.get("PAPERORCHESTRA_CODEX_REASONING_EFFORT", "").strip()
+        or "xhigh"
+    )
+
+
+def _codex_timeout_seconds() -> float:
+    raw_value = (
+        os.environ.get("PAPERBANANA_CODEX_TIMEOUT_SECONDS", "").strip()
+        or os.environ.get("PAPERORCHESTRA_CODEX_TIMEOUT_SECONDS", "").strip()
+        or "900"
+    )
+    try:
+        return max(float(raw_value), 1.0)
+    except ValueError:
+        return 900.0
+
+
+def _build_codex_image_prompt(
+    *,
+    figure_id: str,
+    caption: str,
+    content: str,
+    task: str,
+    aspect_ratio: str,
+    out_path: Path,
+) -> str:
+    return f"""Create one publication-quality academic {task} figure as a PNG.
+
+You are the Codex image-generation handoff for PaperOrchestra/PaperBanana. Use local code generation to create the image artifact directly at the required path. Prefer Python with matplotlib/Pillow; use clean academic styling, readable labels, and a restrained color palette. Do not require network access, do not ask follow-up questions, and do not write anywhere except the requested output path and small adjacent verification artifacts if needed.
+
+Model requirement from caller: GPT-5.5 with xhigh reasoning.
+
+Figure id: {figure_id}
+Task: {task}
+Aspect ratio: {aspect_ratio}
+Caption/objective:
+{caption}
+
+Source content:
+{content}
+
+Required output path:
+{out_path}
+
+Acceptance criteria:
+- Create the exact file at the required output path.
+- The file must be a valid PNG.
+- The image should be at least 1024 bytes.
+- Text must be readable and not overlap.
+- Use the aspect ratio requested above.
+- Verify the PNG exists before finishing.
+"""
+
+
+def _run_codex_image_handoff(
+    *,
+    figure_id: str,
+    caption: str,
+    content: str,
+    content_file: Path,
+    task: str,
+    aspect_ratio: str,
+    out_path: Path,
+) -> int:
+    out_path = out_path.expanduser().resolve()
+    artifact_dir = out_path.parent / ".paperbanana_codex_handoff"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = artifact_dir / f"{out_path.stem}.prompt.md"
+    transcript_path = artifact_dir / f"{out_path.stem}.codex-message.txt"
+    log_path = artifact_dir / f"{out_path.stem}.codex.log"
+    prompt = _build_codex_image_prompt(
+        figure_id=figure_id,
+        caption=caption,
+        content=content,
+        task=task,
+        aspect_ratio=aspect_ratio,
+        out_path=out_path,
+    )
+    prompt_path.write_text(prompt, encoding="utf-8")
+
+    codex_bin = os.environ.get("CODEX_BIN", "").strip() or "codex"
+    repo_root = Path(__file__).resolve().parents[3]
+    command = [
+        codex_bin,
+        "exec",
+        "-m",
+        _codex_model(),
+        "-c",
+        f'model_reasoning_effort="{_codex_reasoning_effort()}"',
+        "--sandbox",
+        "workspace-write",
+        "-C",
+        str(repo_root),
+        "--add-dir",
+        str(out_path.parent),
+        "--add-dir",
+        str(content_file.expanduser().resolve().parent),
+        "-o",
+        str(transcript_path),
+        prompt,
+    ]
+    with log_path.open("w", encoding="utf-8") as handle:
+        handle.write(f"$ {' '.join(command)}\n")
+        process = subprocess.run(
+            command,
+            cwd=str(repo_root),
+            env=os.environ.copy(),
+            stdin=subprocess.DEVNULL,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            timeout=_codex_timeout_seconds(),
+            check=False,
+        )
+    if process.returncode != 0:
+        print(
+            f"ERROR: Codex image handoff failed with exit code {process.returncode}. "
+            f"See {log_path}",
+            file=sys.stderr,
+        )
+        return 1
+    if not out_path.exists():
+        print(
+            f"ERROR: Codex image handoff completed but did not create {out_path}. "
+            f"See {log_path}",
+            file=sys.stderr,
+        )
+        return 1
+    if out_path.stat().st_size < 1024:
+        print(
+            f"ERROR: Codex image handoff created a suspiciously small PNG at {out_path}. "
+            f"See {log_path}",
+            file=sys.stderr,
+        )
+        return 1
+    if out_path.suffix.lower() == ".png" and out_path.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+        print(
+            f"ERROR: Codex image handoff output is not a valid PNG: {out_path}. "
+            f"See {log_path}",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"Saved via Codex image handoff: {out_path} "
+        f"(model={_codex_model()}, reasoning={_codex_reasoning_effort()})",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def check_backend() -> None:
@@ -107,11 +370,30 @@ def check_backend() -> None:
         sys.exit(2)
 
     print(f"PaperBanana found at: {pb}")
+    print(f"  Python                  = {sys.executable}")
     main_model = os.environ.get("PAPERBANANA_MAIN_MODEL", "(from model_config.yaml)")
     img_model = os.environ.get("PAPERBANANA_IMAGE_MODEL", "(from model_config.yaml)")
     print(f"  PAPERBANANA_MAIN_MODEL  = {main_model}")
     print(f"  PAPERBANANA_IMAGE_MODEL = {img_model}")
-    print("Backend is ready.")
+    config_path = pb / "configs" / "model_config.yaml"
+    print(f"  model_config.yaml       = {config_path.exists()}")
+    has_key = _model_api_key_configured(pb)
+    print(f"  model_api_key_configured = {has_key}")
+    print(f"  codex_image_handoff    = {_codex_handoff_enabled()}")
+    print(f"  codex_handoff_model    = {_codex_model()}")
+    print(f"  codex_handoff_reasoning = {_codex_reasoning_effort()}")
+    missing = [(module, detail) for module, ok, detail in _dependency_status(pb) if not ok]
+    if missing:
+        print("Backend dependencies are incomplete:")
+        for module, detail in missing:
+            print(f"  {module}: {detail}")
+        sys.exit(1)
+    if has_key:
+        print("Backend is ready for generation.")
+    elif _codex_handoff_enabled():
+        print("Backend imports are ready. Generation will hand off to Codex when no model API key is configured.")
+    else:
+        print("Backend imports are ready. Generation requires GOOGLE_API_KEY or OPENROUTER_API_KEY.")
     sys.exit(0)
 
 
@@ -235,6 +517,9 @@ def _save_png(b64_jpeg: str, out_path: Path, dpi: int = 300) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    _load_runtime_env()
+    _maybe_reexec_with_paperbanana_python()
+
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -305,6 +590,30 @@ def main() -> int:
 
     content = args.content_file.read_text(encoding="utf-8")
     figure_id = args.figure_id or args.out.stem
+
+    if not _model_api_key_configured(pb_path):
+        if _codex_handoff_enabled():
+            print(
+                "PaperBanana has no model API key configured; handing image generation to Codex "
+                f"(model={_codex_model()}, reasoning={_codex_reasoning_effort()}).",
+                file=sys.stderr,
+            )
+            return _run_codex_image_handoff(
+                figure_id=figure_id,
+                caption=args.caption,
+                content=content,
+                content_file=args.content_file,
+                task=args.task,
+                aspect_ratio=aspect_ratio,
+                out_path=args.out,
+            )
+        print(
+            "ERROR: PaperBanana is installed, but no model API key is configured. "
+            "Set GOOGLE_API_KEY or OPENROUTER_API_KEY in the environment, "
+            "~/.paperorchestra/config, or PaperBanana/configs/model_config.yaml.",
+            file=sys.stderr,
+        )
+        return 1
 
     input_data = {
         "filename":        f"{figure_id}_candidate_0",

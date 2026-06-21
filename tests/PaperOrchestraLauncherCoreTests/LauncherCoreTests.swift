@@ -39,7 +39,7 @@ struct LauncherSettingsStoreTests {
 }
 
 @MainActor
-struct LauncherChromeControllerTests {
+struct LauncherWorkspaceCoordinatorTests {
     @Test
     func restoresSelectionFromSettings() async throws {
         let settings = LauncherSettings(
@@ -52,12 +52,11 @@ struct LauncherChromeControllerTests {
             lastSelectedRunID: "run-2",
             preferredReopenLastContext: true
         )
-        let controller = LauncherChromeController(
+        let controller = LauncherWorkspaceCoordinator(
             settings: settings,
             settingsStore: LauncherSettingsStore(settingsURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             workspaceProvider: FakeWorkspaceProvider(snapshot: .sample(selectedProjectID: "project-2", selectedRunID: "run-2", selectedStageName: "literature")),
-            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler()),
-            actionClient: FakeActionClient()
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler())
         )
 
         #expect(controller.snapshot.selectedProject?.id == "project-2")
@@ -67,12 +66,11 @@ struct LauncherChromeControllerTests {
 
     @Test
     func selectingStageUpdatesInspectorState() async throws {
-        let controller = LauncherChromeController(
+        let controller = LauncherWorkspaceCoordinator(
             settings: LauncherSettings.defaultValue(),
             settingsStore: LauncherSettingsStore(settingsURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             workspaceProvider: FakeWorkspaceProvider(snapshot: .sample()),
-            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler()),
-            actionClient: FakeActionClient()
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler())
         )
 
         controller.selectStage(name: "refinement")
@@ -88,12 +86,11 @@ struct LauncherChromeControllerTests {
             .sample(runStatus: "running"),
             .sample(selectedStageName: "literature", runStatus: "paused"),
         ])
-        let controller = LauncherChromeController(
+        let controller = LauncherWorkspaceCoordinator(
             settings: LauncherSettings.defaultValue(),
             settingsStore: LauncherSettingsStore(settingsURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             workspaceProvider: provider,
-            notificationCoordinator: LauncherNotificationCoordinator(scheduler: scheduler),
-            actionClient: FakeActionClient()
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: scheduler)
         )
 
         await controller.refresh(backendReachable: true)
@@ -103,6 +100,35 @@ struct LauncherChromeControllerTests {
         #expect(messages[0].title == "PaperOrchestra needs attention")
         #expect(controller.snapshot.selectedRun?.topRoadblocks.count == 1)
         #expect(controller.snapshot.selectedRun?.topRoadblocks.first?.stageName == "literature")
+    }
+
+    @Test
+    func noOpRefreshDoesNotRewriteSelectionSettings() async throws {
+        let settingsURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("launcher-settings.json")
+        let settings = LauncherSettings(
+            repoRoot: URL(fileURLWithPath: "/Users/jeff/paper-orchestra"),
+            host: "127.0.0.1",
+            port: 8765,
+            dataRoot: nil,
+            lastHealthyURL: nil,
+            lastSelectedProjectID: "project-1",
+            lastSelectedRunID: "run-1",
+            preferredReopenLastContext: true
+        )
+        let controller = LauncherWorkspaceCoordinator(
+            settings: settings,
+            settingsStore: LauncherSettingsStore(settingsURL: settingsURL),
+            workspaceProvider: FakeWorkspaceProvider(snapshot: .sample(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature")),
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeNotificationScheduler())
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: settingsURL.path))
+
+        await controller.refresh(backendReachable: true)
+
+        #expect(!FileManager.default.fileExists(atPath: settingsURL.path))
     }
 }
 
@@ -149,7 +175,7 @@ struct BackendSupervisorTests {
 
         #expect(result.mode == .launched)
         #expect(processLauncher.launchCount == 1)
-        #expect(result.controlRoomURL.absoluteString == "http://127.0.0.1:8765")
+        #expect(result.backendURL.absoluteString == "http://127.0.0.1:8765")
     }
 
     @Test
@@ -222,7 +248,7 @@ struct BackendSupervisorTests {
         let result = try await supervisor.ensureBackend()
 
         #expect(result.mode == .launched)
-        let healthy = await URLSessionHealthChecker().probe(result.controlRoomURL.appending(path: "health"))
+        let healthy = await URLSessionHealthChecker().probe(result.backendURL.appending(path: "health"))
         #expect(healthy)
     }
 }
@@ -275,12 +301,6 @@ private final class FakeProcessLauncher: ProcessLaunching, @unchecked Sendable {
         launchCount += 1
         return FakeRunningProcess(stderrTail: stderrTail)
     }
-}
-
-private final class FakeActionClient: LauncherActionPerforming, @unchecked Sendable {
-    func startRun(baseURL: URL, projectID: String) async throws {}
-    func resumeRun(baseURL: URL, projectID: String, runID: String) async throws {}
-    func retryStage(baseURL: URL, projectID: String, runID: String, stageName: String) async throws {}
 }
 
 private actor FakeNotificationScheduler: LauncherNotificationScheduling {

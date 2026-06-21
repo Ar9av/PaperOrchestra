@@ -25,14 +25,18 @@ struct LauncherIntegrationStatusRow: View {
                 .frame(width: 8, height: 8)
             Text(status.label)
                 .font(LauncherTypography.body)
-            Spacer()
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
             Text(status.statusText)
                 .font(LauncherTypography.emphasisCaption)
                 .foregroundStyle(LauncherSemanticColors.stageStatus(status.tone))
+                .lineLimit(1)
+                .layoutPriority(1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(status.label) \(status.statusText)")
     }
 }
-

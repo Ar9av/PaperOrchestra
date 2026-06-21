@@ -44,6 +44,140 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.workspaceSelection.selectedStageName, "refinement")
     }
 
+    func test_selectArtifactTracksArtifactPathWithoutLeavingCurrentDestination() throws {
+        let viewModel = try makeViewModel()
+        viewModel.selectWorkflowDestination(.outputs)
+
+        viewModel.selectArtifact("/tmp/final.pdf")
+
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
+        XCTAssertEqual(viewModel.workspaceSelection.selectedArtifactPath, "/tmp/final.pdf")
+    }
+
+    func test_selectInputPanel_switchesToInputsDestination() throws {
+        let viewModel = try makeViewModel()
+
+        viewModel.selectInputPanel(.guidelines)
+
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.inputs(panel: .guidelines))
+        XCTAssertEqual(viewModel.workspaceSelection.selectedInputPanel, .guidelines)
+    }
+
+    func test_refreshDelayUsesIdleCadenceWhenBackendIsHealthyAndNoRunIsSelected() {
+        let snapshot = FixtureWorkspaceProvider.makeSnapshot(
+            selectedProjectID: "project-2",
+            selectedRunID: nil,
+            selectedStageName: nil
+        )
+
+        XCTAssertEqual(
+            LauncherViewModel.refreshDelay(for: snapshot, backendReachable: true),
+            LauncherViewModel.RefreshCadence.idle
+        )
+    }
+
+    func test_refreshDelayUsesActiveCadenceForRunningRun() {
+        let snapshot = FixtureWorkspaceProvider.makeSnapshot(
+            selectedProjectID: "project-1",
+            selectedRunID: "run-1",
+            selectedStageName: "literature"
+        )
+
+        XCTAssertEqual(
+            LauncherViewModel.refreshDelay(for: snapshot, backendReachable: true),
+            LauncherViewModel.RefreshCadence.active
+        )
+    }
+
+    func test_refreshDelayUsesRecoveryCadenceWhenBackendIsUnreachable() {
+        let snapshot = FixtureWorkspaceProvider.makeSnapshot(
+            selectedProjectID: "project-1",
+            selectedRunID: "run-1",
+            selectedStageName: "literature"
+        )
+
+        XCTAssertEqual(
+            LauncherViewModel.refreshDelay(for: snapshot, backendReachable: false),
+            LauncherViewModel.RefreshCadence.recovering
+        )
+    }
+
+    func test_startFallsBackToNativeWorkspaceWhenBackendStartupFails() async throws {
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: FixtureWorkspaceProvider(
+                snapshots: [
+                    FixtureWorkspaceProvider.makeSnapshot(
+                        selectedProjectID: "project-1",
+                        selectedRunID: "run-1",
+                        selectedStageName: "literature",
+                        backendReachable: false
+                    )
+                ]
+            ),
+            notificationScheduler: NoopNotificationScheduler(),
+            backendSupervisorFactory: { _ in
+                FailingBackendSupervisor(error: LauncherError.startupTimedOut("backend unavailable"))
+            }
+        )
+
+        await viewModel.start()
+        defer { viewModel.shutdown() }
+
+        XCTAssertEqual(viewModel.phase, .running)
+        XCTAssertNil(viewModel.backendURL)
+        XCTAssertFalse(viewModel.snapshot.integrations.backendReachable)
+        XCTAssertTrue(viewModel.canStartRun)
+    }
+
+    func test_backendOfflineNativeWorkspaceStillNavigatesCoreSurfaces() throws {
+        let viewModel = try makeViewModel(
+            snapshots: [
+                FixtureWorkspaceProvider.makeSnapshot(
+                    selectedProjectID: "project-1",
+                    selectedRunID: "run-1",
+                    selectedStageName: "literature",
+                    backendReachable: false
+                )
+            ]
+        )
+        viewModel.phase = .running
+
+        XCTAssertFalse(viewModel.snapshot.integrations.backendReachable)
+        XCTAssertTrue(viewModel.canStartRun)
+
+        viewModel.selectWorkflowDestination(.setup)
+        XCTAssertEqual(viewModel.workspaceSelection.destination, .setup)
+
+        viewModel.selectInputPanel(.figures)
+        XCTAssertEqual(viewModel.workspaceSelection.destination, .inputs(panel: .figures))
+
+        viewModel.selectWorkflowDestination(.review)
+        XCTAssertEqual(viewModel.workspaceSelection.destination, .review)
+
+        viewModel.selectStage("literature")
+        XCTAssertEqual(viewModel.workspaceSelection.destination, .run)
+        XCTAssertEqual(viewModel.workspaceSelection.selectedStageName, "literature")
+    }
+
+    func test_startKeepsConfigurationStateForMissingRepoRoot() async throws {
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: FixtureWorkspaceProvider(),
+            notificationScheduler: NoopNotificationScheduler(),
+            backendSupervisorFactory: { _ in
+                FailingBackendSupervisor(error: LauncherError.repoRootMissing("/missing/repo"))
+            }
+        )
+
+        await viewModel.start()
+        defer { viewModel.shutdown() }
+
+        XCTAssertEqual(viewModel.phase, .configuration("PaperOrchestra repo root not found at /missing/repo."))
+    }
+
     func test_refreshingSnapshot_preservesWorkspaceSelection_fromSetup_whenRunAppears() async throws {
         let provider = FixtureWorkspaceProvider(
             snapshots: [
@@ -55,8 +189,7 @@ final class LauncherViewModelRoutingTests: XCTestCase {
             settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
             settings: LauncherSettings.defaultValue(),
             workspaceProvider: provider,
-            notificationScheduler: NoopNotificationScheduler(),
-            actionClient: NoopActionClient()
+            notificationScheduler: NoopNotificationScheduler()
         )
 
         XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.setup)
@@ -78,8 +211,7 @@ final class LauncherViewModelRoutingTests: XCTestCase {
             settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
             settings: LauncherSettings.defaultValue(),
             workspaceProvider: provider,
-            notificationScheduler: NoopNotificationScheduler(),
-            actionClient: NoopActionClient()
+            notificationScheduler: NoopNotificationScheduler()
         )
 
         viewModel.selectWorkflowDestination(.outputs)
@@ -88,6 +220,28 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         viewModel.reload()
         try await waitForSelectedStage(viewModel, name: "refinement")
         XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.outputs)
+    }
+
+    func test_refreshingSnapshot_preservesInputsDestinationAndPanel() async throws {
+        let provider = FixtureWorkspaceProvider(
+            snapshots: [
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature"),
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "refinement"),
+            ]
+        )
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: provider,
+            notificationScheduler: NoopNotificationScheduler()
+        )
+
+        viewModel.selectInputPanel(.template)
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.inputs(panel: .template))
+
+        viewModel.reload()
+        try await waitForSelectedStage(viewModel, name: "refinement")
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.inputs(panel: .template))
     }
 
     private func makeViewModel(
@@ -103,8 +257,7 @@ final class LauncherViewModelRoutingTests: XCTestCase {
             settingsStore: LauncherSettingsStore(settingsURL: settingsURL),
             settings: LauncherSettings.defaultValue(),
             workspaceProvider: provider,
-            notificationScheduler: NoopNotificationScheduler(),
-            actionClient: NoopActionClient()
+            notificationScheduler: NoopNotificationScheduler()
         )
     }
 
@@ -148,7 +301,11 @@ final class LauncherViewModelRoutingTests: XCTestCase {
 private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unchecked Sendable {
     private var snapshots: [LauncherWorkspaceSnapshot]
 
-    init(snapshots: [LauncherWorkspaceSnapshot]) {
+    init(
+        snapshots: [LauncherWorkspaceSnapshot] = [
+            FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature")
+        ]
+    ) {
         self.snapshots = snapshots
     }
 
@@ -171,7 +328,8 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
     static func makeSnapshot(
         selectedProjectID: String?,
         selectedRunID: String?,
-        selectedStageName: String?
+        selectedStageName: String?,
+        backendReachable: Bool = true
     ) -> LauncherWorkspaceSnapshot {
         let projects: [LauncherProjectSnapshot] = [
             LauncherProjectSnapshot(
@@ -243,7 +401,7 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
             selectedRun: run,
             selectedStage: stage,
             integrations: LauncherIntegrationSnapshot(
-                backendReachable: true,
+                backendReachable: backendReachable,
                 repoConfigured: true,
                 pythonConfigured: true,
                 dataRoot: "/tmp/gui",
@@ -258,8 +416,16 @@ private struct NoopNotificationScheduler: LauncherNotificationScheduling {
     func notify(title: String, body: String) async {}
 }
 
-private struct NoopActionClient: LauncherActionPerforming {
-    func startRun(baseURL: URL, projectID: String) async throws {}
-    func resumeRun(baseURL: URL, projectID: String, runID: String) async throws {}
-    func retryStage(baseURL: URL, projectID: String, runID: String, stageName: String) async throws {}
+private final class FailingBackendSupervisor: LauncherViewModel.BackendEnsuring, @unchecked Sendable {
+    let error: Error
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func ensureBackend() async throws -> BackendStartupResult {
+        throw error
+    }
+
+    func terminateOwnedProcess() {}
 }

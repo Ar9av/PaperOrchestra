@@ -8,25 +8,25 @@ struct RunWorkspaceView: View {
     var body: some View {
         let presentation = Presentation(snapshot: viewModel.snapshot)
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.large) {
-                if let emptyState = presentation.emptyState {
-                    LauncherEmptyState(
-                        title: emptyState.title,
-                        message: emptyState.message,
-                        systemImage: emptyState.systemImage
-                    )
-                } else {
-                    runHeader(presentation)
-                    stageList(presentation)
-                    if let selectedStage = presentation.selectedStage {
-                        selectedStageDetail(selectedStage)
-                    }
-                }
+        LauncherWorkspaceScaffold(
+            title: presentation.headerTitle,
+            summary: presentation.headerSummary,
+            idealWidth: 960
+        ) {
+            if let emptyState = presentation.emptyState {
+                LauncherEmptyState(
+                    title: emptyState.title,
+                    message: emptyState.message,
+                    systemImage: emptyState.systemImage
+                )
+            } else {
+                runHeader(presentation)
+                diagnosticsSection(presentation)
+                roadblockSection(presentation)
+                stageList(presentation)
+                recentArtifactSection(presentation)
             }
-            .padding(LauncherDesignTokens.Spacing.large)
         }
-        .background(.background)
     }
 
     private func runHeader(_ presentation: Presentation) -> some View {
@@ -39,10 +39,22 @@ struct RunWorkspaceView: View {
                         Text(presentation.headerSummary)
                             .font(LauncherTypography.body)
                             .foregroundStyle(.secondary)
+                        Text(presentation.runSourceLabel)
+                            .font(LauncherTypography.detail)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let status = presentation.runStatus {
-                        LauncherStatusBadge(status: status)
+                    VStack(alignment: .trailing, spacing: LauncherDesignTokens.Spacing.small) {
+                        if let status = presentation.runStatus {
+                            LauncherStatusBadge(status: status)
+                        }
+                        if viewModel.canCancelRun {
+                            Button("Cancel", systemImage: "stop.fill") {
+                                viewModel.cancelRun()
+                            }
+                            .buttonStyle(LauncherSecondaryButtonStyle())
+                            .controlSize(.small)
+                        }
                     }
                 }
 
@@ -50,6 +62,42 @@ struct RunWorkspaceView: View {
                     Text("Current stage: \(currentStage)")
                         .font(LauncherTypography.detail)
                         .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func diagnosticsSection(_ presentation: Presentation) -> some View {
+        if let diagnostics = presentation.diagnostics {
+            RunDiagnosticsView(
+                diagnostics: diagnostics,
+                openPath: viewModel.openPath,
+                revealPath: viewModel.revealPath,
+                copyDiagnostics: viewModel.copyDiagnostics
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func roadblockSection(_ presentation: Presentation) -> some View {
+        if !presentation.roadblocks.isEmpty {
+            PremiumCard {
+                VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.small) {
+                    Text("Roadblocks")
+                        .font(LauncherTypography.cardTitle)
+                    ForEach(presentation.roadblocks) { roadblock in
+                        RoadblockCard(tone: LauncherSemanticColors.stageStatus(roadblock.status)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(prettyStageName(roadblock.stageName))
+                                    .font(LauncherTypography.cardTitle)
+                                Text(roadblock.message)
+                                    .font(LauncherTypography.detail)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
             }
         }
@@ -86,6 +134,16 @@ struct RunWorkspaceView: View {
                                     Text(stage.status.replacingOccurrences(of: "_", with: " ").capitalized)
                                         .font(LauncherTypography.detail)
                                         .foregroundStyle(.secondary)
+                                    if stage.substepCount > 0 || stage.artifactCount > 0 {
+                                        Text("\(stage.substepCount) substeps • \(stage.artifactCount) artifacts")
+                                            .font(LauncherTypography.fineDetail)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let performance = stage.performanceSummary {
+                                        Text(performance)
+                                            .font(LauncherTypography.fineDetail)
+                                            .foregroundStyle(LauncherSemanticColors.muted)
+                                    }
                                     if !stage.summary.isEmpty {
                                         Text(stage.summary)
                                             .font(LauncherTypography.detail)
@@ -102,60 +160,17 @@ struct RunWorkspaceView: View {
         }
     }
 
-    private func selectedStageDetail(_ selectedStage: Presentation.StageDetail) -> some View {
-        PremiumCard {
-            VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.small) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(selectedStage.displayName)
-                        .font(LauncherTypography.sectionTitle)
-                    Spacer()
-                    LauncherStatusBadge(status: selectedStage.status)
-                }
-
-                Text(selectedStage.summary.isEmpty ? "No summary yet." : selectedStage.summary)
-                    .foregroundStyle(.secondary)
-
-                if let attentionMessage = selectedStage.attentionMessage {
-                    Text(attentionMessage)
-                        .font(LauncherTypography.detail)
-                        .foregroundStyle(LauncherSemanticColors.warning)
-                }
-
-                if !selectedStage.substeps.isEmpty {
-                    VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.small) {
-                        Text("Substeps")
-                            .font(LauncherTypography.cardTitle)
-
-                        ForEach(selectedStage.substeps) { substep in
-                            NativeSurface {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack {
-                                        Text(substep.name)
-                                        Spacer()
-                                        Text(substep.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                                            .font(LauncherTypography.detail)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if !substep.summary.isEmpty {
-                                        Text(substep.summary)
-                                            .font(LauncherTypography.detail)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                }
-
-                if !selectedStage.artifacts.isEmpty {
-                    VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.small) {
-                        Text("Artifacts")
-                            .font(LauncherTypography.cardTitle)
-
-                        ForEach(selectedStage.artifacts) { artifact in
+    @ViewBuilder
+    private func recentArtifactSection(_ presentation: Presentation) -> some View {
+        if !presentation.recentArtifacts.isEmpty {
+            PremiumCard {
+                VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.small) {
+                    Text("Recent Artifacts")
+                        .font(LauncherTypography.cardTitle)
+                    ForEach(presentation.recentArtifacts) { artifact in
+                        HStack(alignment: .top, spacing: LauncherDesignTokens.Spacing.small) {
                             Button {
-                                viewModel.openArtifact(artifact)
+                                viewModel.selectArtifact(artifact.path)
                             } label: {
                                 NativeSurface {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -169,11 +184,20 @@ struct RunWorkspaceView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+
+                            Button("Open") {
+                                viewModel.openArtifact(artifact.source)
+                            }
+                            .buttonStyle(LauncherSecondaryButtonStyle())
                         }
                     }
                 }
             }
         }
+    }
+
+    private func prettyStageName(_ name: String) -> String {
+        name.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }
 
@@ -186,6 +210,9 @@ extension RunWorkspaceView {
             let status: String
             let summary: String
             let isSelected: Bool
+            let substepCount: Int
+            let artifactCount: Int
+            let performanceSummary: String?
         }
 
         struct StageDetail: Identifiable, Equatable {
@@ -197,6 +224,7 @@ extension RunWorkspaceView {
             let attentionMessage: String?
             let artifacts: [LauncherArtifactSnapshot]
             let substeps: [LauncherSubstepSnapshot]
+            let performanceSummary: String?
         }
 
         struct EmptyState: Equatable {
@@ -207,18 +235,28 @@ extension RunWorkspaceView {
 
         let headerTitle: String
         let headerSummary: String
+        let runSourceLabel: String
         let runStatus: String?
         let currentStageLabel: String?
         let stageRows: [StageRow]
         let selectedStage: StageDetail?
+        let roadblocks: [LauncherRoadblockSnapshot]
+        let recentArtifacts: [OutputsWorkspaceView.Presentation.ArtifactRow]
+        let diagnostics: LauncherRunDiagnosticsSnapshot?
         let emptyState: EmptyState?
 
         init(snapshot: LauncherWorkspaceSnapshot) {
             headerTitle = snapshot.selectedProject?.title ?? "Run workspace"
             if let run = snapshot.selectedRun {
                 headerSummary = run.summary.isEmpty ? "No run summary available." : run.summary
+                runSourceLabel = run.source == .atlasLegacy ? "Legacy Atlas Run" : "Orchestrated Run"
                 runStatus = run.status
                 currentStageLabel = Self.prettyName(run.currentStage)
+                roadblocks = run.topRoadblocks
+                diagnostics = run.diagnostics?.hasWorkerMetadata == true ? run.diagnostics : nil
+                recentArtifacts = Array(run.artifacts.prefix(6)).map {
+                    OutputsWorkspaceView.Presentation.ArtifactRow(id: $0.id, label: $0.label, path: $0.path, source: $0)
+                }
 
                 let resolvedSelectedStage = snapshot.selectedStage ?? run.stages.first(where: { $0.name == run.currentStage }) ?? run.stages.first
                 stageRows = run.stages.map { stage in
@@ -228,7 +266,10 @@ extension RunWorkspaceView {
                         displayName: Self.prettyName(stage.name),
                         status: stage.status,
                         summary: stage.summary,
-                        isSelected: stage.name == resolvedSelectedStage?.name
+                        isSelected: stage.name == resolvedSelectedStage?.name,
+                        substepCount: stage.substeps.count,
+                        artifactCount: stage.artifacts.count,
+                        performanceSummary: stage.performanceSummary
                     )
                 }
 
@@ -241,22 +282,27 @@ extension RunWorkspaceView {
                         summary: selectedStage.summary,
                         attentionMessage: selectedStage.attentionMessage,
                         artifacts: selectedStage.artifacts,
-                        substeps: selectedStage.substeps
+                        substeps: selectedStage.substeps,
+                        performanceSummary: selectedStage.performanceSummary
                     )
                 } else {
                     self.selectedStage = nil
                 }
                 emptyState = nil
             } else {
-                headerSummary = "No run selected."
+                headerSummary = snapshot.integrations.dataRootIssue ?? "No run selected."
+                runSourceLabel = "No run loaded"
                 runStatus = nil
                 currentStageLabel = nil
                 stageRows = []
                 selectedStage = nil
+                roadblocks = []
+                recentArtifacts = []
+                diagnostics = nil
                 emptyState = EmptyState(
-                    title: "No run selected",
-                    message: "Select a project with a run to inspect stages, substeps, and artifacts.",
-                    systemImage: "play.circle"
+                    title: snapshot.integrations.dataRootIssue == nil ? "No run selected" : "Run data unavailable",
+                    message: snapshot.integrations.dataRootIssue ?? "Select a project with a run to inspect stages, substeps, and artifacts.",
+                    systemImage: snapshot.integrations.dataRootIssue == nil ? "play.circle" : "lock.trianglebadge.exclamationmark"
                 )
             }
         }
