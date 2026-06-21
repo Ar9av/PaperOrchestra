@@ -53,6 +53,8 @@ final class RunWorkspaceSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.finalPDFPath, "/tmp/final.pdf")
         XCTAssertEqual(presentation.recentArtifacts.map(\.label), ["Manuscript", "Run log"])
         XCTAssertEqual(presentation.artifactGroups.map(\.title), ["Documents", "Logs"])
+        XCTAssertEqual(presentation.selectedArtifact?.path, "/tmp/final.pdf")
+        XCTAssertEqual(presentation.selectedArtifact?.category, .documents)
         XCTAssertNil(presentation.emptyState)
     }
 
@@ -64,6 +66,38 @@ final class RunWorkspaceSnapshotTests: XCTestCase {
         XCTAssertEqual(presentation.runSourceLabel, "Legacy Atlas Run")
         XCTAssertEqual(presentation.artifactGroups.map(\.title), ["Research", "Logs", "Images"])
         XCTAssertEqual(presentation.artifactGroups.first?.artifacts.map(\.label), ["Atlas Result"])
+    }
+
+    func test_outputsWorkspacePresentation_filtersArtifactsByCategory() {
+        let snapshot = FixtureWorkspaceProvider.makeArtifactBrowserSnapshot()
+
+        let research = OutputsWorkspaceView.Presentation(
+            snapshot: snapshot,
+            selectedArtifactPath: "/tmp/results/citation_pool.json",
+            filter: .research
+        )
+        let logs = OutputsWorkspaceView.Presentation(snapshot: snapshot, filter: .logs)
+        let images = OutputsWorkspaceView.Presentation(snapshot: snapshot, filter: .images)
+
+        XCTAssertEqual(research.filteredArtifacts.map(\.label), ["Citation Pool", "Bibliography"])
+        XCTAssertEqual(research.selectedArtifact?.label, "Citation Pool")
+        XCTAssertEqual(logs.filteredArtifacts.map(\.label), ["Run Log", "Missing Log"])
+        XCTAssertEqual(images.filteredArtifacts.map(\.label), ["Figure"])
+        XCTAssertEqual(research.artifactGroups.map(\.title), ["Documents", "Research", "Logs", "Images", "Other"])
+    }
+
+    func test_outputsWorkspacePresentation_marksMissingArtifactActionState() {
+        let snapshot = FixtureWorkspaceProvider.makeArtifactBrowserSnapshot()
+
+        let presentation = OutputsWorkspaceView.Presentation(
+            snapshot: snapshot,
+            selectedArtifactPath: "/tmp/results/missing.log"
+        )
+
+        XCTAssertEqual(presentation.selectedArtifact?.label, "Missing Log")
+        XCTAssertEqual(presentation.selectedArtifact?.exists, false)
+        XCTAssertEqual(presentation.selectedArtifact?.sizeLabel, "Missing file")
+        XCTAssertEqual(presentation.selectedArtifact?.category, .logs)
     }
 }
 
@@ -276,6 +310,61 @@ private enum FixtureWorkspaceProvider {
             currentStage: "atlas_normal_fallback",
             summary: "Atlas completed in fallback mode.",
             finalPDFPath: nil,
+            artifacts: artifacts,
+            stages: stages,
+            topRoadblocks: []
+        )
+        return LauncherWorkspaceSnapshot(
+            projects: [project],
+            selectedProject: project,
+            selectedRun: run,
+            selectedStage: stages[0],
+            integrations: LauncherIntegrationSnapshot(
+                backendReachable: true,
+                repoConfigured: true,
+                pythonConfigured: true,
+                dataRoot: "/tmp/gui",
+                host: "127.0.0.1",
+                port: 8765
+            )
+        )
+    }
+
+    static func makeArtifactBrowserSnapshot() -> LauncherWorkspaceSnapshot {
+        let project = LauncherProjectSnapshot(
+            id: "project-artifacts",
+            title: "Artifact Browser Project",
+            wizardStep: "outputs",
+            lastStatus: "succeeded",
+            workspacePath: "/tmp/project-artifacts",
+            latestRunID: "run-artifacts",
+            updatedAt: "2026-04-18T00:00:00+00:00"
+        )
+        let artifacts = [
+            LauncherArtifactSnapshot(label: "Final PDF", path: "/tmp/results/final.pdf", exists: true, sizeLabel: "12 KB", parentFolder: "/tmp/results", lastModifiedLabel: "Jun 21, 2026"),
+            LauncherArtifactSnapshot(label: "Citation Pool", path: "/tmp/results/citation_pool.json", exists: true, sizeLabel: "4 KB", parentFolder: "/tmp/results", lastModifiedLabel: "Jun 21, 2026"),
+            LauncherArtifactSnapshot(label: "Bibliography", path: "/tmp/results/refs.bib", exists: true, sizeLabel: "2 KB", parentFolder: "/tmp/results", lastModifiedLabel: "Jun 21, 2026"),
+            LauncherArtifactSnapshot(label: "Run Log", path: "/tmp/results/run.log", exists: true, sizeLabel: "8 KB", parentFolder: "/tmp/results", lastModifiedLabel: "Jun 21, 2026"),
+            LauncherArtifactSnapshot(label: "Figure", path: "/tmp/results/figure.png", exists: true, sizeLabel: "16 KB", parentFolder: "/tmp/results", lastModifiedLabel: "Jun 21, 2026"),
+            LauncherArtifactSnapshot(label: "Workspace Cache", path: "/tmp/results/cache.sqlite3", exists: true, sizeLabel: "24 KB", parentFolder: "/tmp/results", lastModifiedLabel: "Jun 21, 2026"),
+            LauncherArtifactSnapshot(label: "Missing Log", path: "/tmp/results/missing.log", exists: false, sizeLabel: "Missing file", parentFolder: "/tmp/results", lastModifiedLabel: nil),
+        ]
+        let stages = [
+            LauncherStageSnapshot(
+                name: "finalize",
+                status: "succeeded",
+                summary: "Final artifacts ready.",
+                attentionMessage: nil,
+                artifacts: artifacts,
+                substeps: []
+            )
+        ]
+        let run = LauncherRunSnapshot(
+            id: "run-artifacts",
+            status: "succeeded",
+            currentStage: "finalize",
+            summary: "Finished run",
+            finalPDFPath: "/tmp/results/final.pdf",
             artifacts: artifacts,
             stages: stages,
             topRoadblocks: []

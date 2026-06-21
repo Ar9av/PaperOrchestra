@@ -4,6 +4,41 @@ import Testing
 
 struct LauncherWorkspaceRepositoryInputTests {
     @Test
+    func derivesArtifactMetadataForExistingAndMissingFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let pdfURL = root.appendingPathComponent("paper.pdf")
+        try Data("%PDF-1.4".utf8).write(to: pdfURL)
+
+        let existing = LauncherArtifactSnapshot(label: "Final PDF", path: pdfURL.path)
+        #expect(existing.fileName == "paper.pdf")
+        #expect(existing.fileExtension == "pdf")
+        #expect(existing.category == .documents)
+        #expect(existing.exists)
+        #expect(existing.sizeLabel != "Missing file")
+        #expect(existing.parentFolder == root.path)
+        #expect(existing.lastModifiedLabel != nil)
+
+        let missing = LauncherArtifactSnapshot(label: "Run Log", path: root.appendingPathComponent("missing.log").path)
+        #expect(missing.fileName == "missing.log")
+        #expect(missing.fileExtension == "log")
+        #expect(missing.category == .logs)
+        #expect(!missing.exists)
+        #expect(missing.sizeLabel == "Missing file")
+        #expect(missing.lastModifiedLabel == nil)
+    }
+
+    @Test
+    func infersArtifactCategoryFromExtensionAndLabel() {
+        #expect(LauncherArtifactCategory.infer(label: "Manuscript", pathExtension: "tex") == .documents)
+        #expect(LauncherArtifactCategory.infer(label: "Citation Pool", pathExtension: "json") == .research)
+        #expect(LauncherArtifactCategory.infer(label: "Run Log", pathExtension: "") == .logs)
+        #expect(LauncherArtifactCategory.infer(label: "Figure", pathExtension: "png") == .images)
+        #expect(LauncherArtifactCategory.infer(label: "Workspace Cache", pathExtension: "sqlite3") == .other)
+    }
+
+    @Test
     func logReaderTailsLastLinesAndReportsMissingFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -254,6 +289,7 @@ struct LauncherWorkspaceRepositoryInputTests {
         let literatureArtifact = workspaceRoot.appendingPathComponent("literature_candidates.json")
         let bibArtifact = workspaceRoot.appendingPathComponent("refs.bib")
         let relworkArtifact = workspaceRoot.appendingPathComponent("drafts", isDirectory: true).appendingPathComponent("intro_relwork.tex")
+        let missingArtifact = workspaceRoot.appendingPathComponent("missing-literature.log")
         try Data("png".utf8).write(to: plottingArtifact)
         try Data("{\"candidates\": 12}".utf8).write(to: literatureArtifact)
         try Data("@article{demo,title={Demo}}".utf8).write(to: bibArtifact)
@@ -333,7 +369,7 @@ struct LauncherWorkspaceRepositoryInputTests {
               "attention_required": {
                 "message": "Approve the Chrome debugging session to continue literature discovery."
               },
-              "artifacts": ["\(literatureArtifact.path)"],
+              "artifacts": ["\(literatureArtifact.path)", "\(missingArtifact.path)"],
               "substeps": [
                 {
                   "name": "browser_discovery",
@@ -403,6 +439,8 @@ struct LauncherWorkspaceRepositoryInputTests {
         #expect(run.topRoadblocks.first?.message == "Approve the Chrome debugging session to continue literature discovery.")
         #expect(run.artifacts.map(\.label).contains("figure-1.png"))
         #expect(run.artifacts.map(\.label).contains("literature_candidates.json"))
+        #expect(run.artifacts.first(where: { $0.path == missingArtifact.path })?.exists == false)
+        #expect(run.artifacts.first(where: { $0.path == missingArtifact.path })?.category == .logs)
         #expect(run.artifacts.map(\.label).contains("Bibliography"))
         #expect(run.artifacts.map(\.label).contains("Intro + Related Work"))
         #expect(run.stages.first(where: { $0.name == "literature" })?.substeps.count == 2)

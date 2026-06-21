@@ -204,15 +204,110 @@ public struct LauncherProjectSnapshot: Equatable, Identifiable, Sendable {
     public let updatedAt: String
 }
 
+public enum LauncherArtifactCategory: String, CaseIterable, Codable, Identifiable, Sendable {
+    case documents
+    case research
+    case logs
+    case images
+    case other
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .documents:
+            return "Documents"
+        case .research:
+            return "Research"
+        case .logs:
+            return "Logs"
+        case .images:
+            return "Images"
+        case .other:
+            return "Other"
+        }
+    }
+
+    public static func infer(label: String, pathExtension: String) -> LauncherArtifactCategory {
+        let normalizedLabel = label.lowercased()
+        let normalizedExtension = pathExtension.lowercased()
+        if ["pdf", "tex", "docx", "md"].contains(normalizedExtension) {
+            return .documents
+        }
+        if normalizedLabel.contains("log") || ["log", "txt"].contains(normalizedExtension) {
+            return .logs
+        }
+        if ["png", "jpg", "jpeg", "gif", "tiff", "heic"].contains(normalizedExtension) {
+            return .images
+        }
+        if normalizedLabel.contains("result")
+            || normalizedLabel.contains("citation")
+            || normalizedLabel.contains("bibliography")
+            || ["json", "bib", "nbib"].contains(normalizedExtension) {
+            return .research
+        }
+        return .other
+    }
+}
+
 public struct LauncherArtifactSnapshot: Equatable, Identifiable, Sendable {
     public let id: String
     public let label: String
     public let path: String
+    public let fileName: String
+    public let fileExtension: String
+    public let category: LauncherArtifactCategory
+    public let exists: Bool
+    public let sizeLabel: String
+    public let parentFolder: String
+    public let lastModifiedLabel: String?
 
-    public init(label: String, path: String) {
+    public init(
+        label: String,
+        path: String,
+        fileName: String? = nil,
+        fileExtension: String? = nil,
+        category: LauncherArtifactCategory? = nil,
+        exists: Bool? = nil,
+        sizeLabel: String? = nil,
+        parentFolder: String? = nil,
+        lastModifiedLabel: String? = nil
+    ) {
+        let url = URL(fileURLWithPath: path)
+        let fileManager = FileManager.default
+        let resolvedExists = exists ?? fileManager.fileExists(atPath: path)
+        let resolvedExtension = (fileExtension ?? url.pathExtension).lowercased()
+        let attributes = try? fileManager.attributesOfItem(atPath: path)
+        let resolvedSizeLabel: String
+        if let sizeLabel {
+            resolvedSizeLabel = sizeLabel
+        } else if resolvedExists,
+                  let size = attributes?[.size] as? NSNumber {
+            resolvedSizeLabel = ByteCountFormatter.string(fromByteCount: size.int64Value, countStyle: .file)
+        } else if resolvedExists {
+            resolvedSizeLabel = "Size unavailable"
+        } else {
+            resolvedSizeLabel = "Missing file"
+        }
+        let resolvedLastModifiedLabel: String?
+        if let lastModifiedLabel {
+            resolvedLastModifiedLabel = lastModifiedLabel
+        } else if resolvedExists,
+                  let modifiedAt = attributes?[.modificationDate] as? Date {
+            resolvedLastModifiedLabel = modifiedAt.formatted(date: .abbreviated, time: .shortened)
+        } else {
+            resolvedLastModifiedLabel = nil
+        }
         self.id = "\(label)|\(path)"
         self.label = label
         self.path = path
+        self.fileName = fileName ?? (url.lastPathComponent.isEmpty ? label : url.lastPathComponent)
+        self.fileExtension = resolvedExtension
+        self.category = category ?? LauncherArtifactCategory.infer(label: label, pathExtension: resolvedExtension)
+        self.exists = resolvedExists
+        self.sizeLabel = resolvedSizeLabel
+        self.parentFolder = parentFolder ?? url.deletingLastPathComponent().path
+        self.lastModifiedLabel = resolvedLastModifiedLabel
     }
 }
 

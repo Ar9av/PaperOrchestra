@@ -74,7 +74,12 @@ struct LauncherInspectorView: View {
                     }
 
                     if !stage.artifacts.isEmpty {
-                        LauncherArtifactSection(title: "Stage Artifacts", artifacts: stage.artifacts, openArtifact: viewModel.openArtifact)
+                        LauncherArtifactSection(
+                            title: "Stage Artifacts",
+                            artifacts: stage.artifacts,
+                            selectArtifact: viewModel.selectArtifact,
+                            openArtifact: viewModel.openArtifact
+                        )
                     }
                     if let artifact = selectedArtifact {
                         artifactInspector(artifact, title: "Selected Artifact")
@@ -84,7 +89,12 @@ struct LauncherInspectorView: View {
                 }
 
                 if let run = viewModel.snapshot.selectedRun, !run.artifacts.isEmpty {
-                    LauncherArtifactSection(title: "Recent Artifacts", artifacts: Array(run.artifacts.prefix(8)), openArtifact: viewModel.openArtifact)
+                    LauncherArtifactSection(
+                        title: "Recent Artifacts",
+                        artifacts: Array(run.artifacts.prefix(8)),
+                        selectArtifact: viewModel.selectArtifact,
+                        openArtifact: viewModel.openArtifact
+                    )
                 }
 
                 if case .run = viewModel.workspaceSelection.destination,
@@ -342,18 +352,26 @@ struct LauncherInspectorView: View {
     private func artifactInspector(_ artifact: LauncherArtifactSnapshot, title: String) -> some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.small) {
-                Text(title)
-                    .font(LauncherTypography.cardTitle)
-                Text(artifact.label)
-                    .font(LauncherTypography.sectionTitle)
-                Text(artifact.path)
-                    .font(LauncherTypography.detail)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Button("Open Artifact") {
-                    viewModel.openArtifact(artifact)
+                HStack(alignment: .top, spacing: LauncherDesignTokens.Spacing.small) {
+                    LauncherArtifactGlyph(artifact: artifact)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(LauncherTypography.cardTitle)
+                        Text(artifact.label)
+                            .font(LauncherTypography.sectionTitle)
+                        Text(artifact.category.displayName)
+                            .font(LauncherTypography.detail)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .buttonStyle(LauncherSecondaryButtonStyle())
+
+                LauncherArtifactMetadataView(artifact: artifact)
+                LauncherArtifactActions(
+                    artifact: artifact,
+                    openArtifact: viewModel.openArtifact,
+                    revealArtifact: viewModel.revealArtifact,
+                    copyArtifactPath: viewModel.copyArtifactPath
+                )
             }
         }
     }
@@ -362,6 +380,7 @@ struct LauncherInspectorView: View {
 struct LauncherArtifactSection: View {
     let title: String
     let artifacts: [LauncherArtifactSnapshot]
+    let selectArtifact: (String) -> Void
     let openArtifact: (LauncherArtifactSnapshot) -> Void
 
     var body: some View {
@@ -370,21 +389,38 @@ struct LauncherArtifactSection: View {
                 Text(title)
                     .font(LauncherTypography.cardTitle)
                 ForEach(artifacts) { artifact in
-                    Button {
-                        openArtifact(artifact)
-                    } label: {
-                        NativeSurface {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(artifact.label)
-                                Text(artifact.path)
-                                    .font(LauncherTypography.fineDetail)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+                    HStack(alignment: .top, spacing: LauncherDesignTokens.Spacing.small) {
+                        Button {
+                            selectArtifact(artifact.path)
+                        } label: {
+                            NativeSurface {
+                                HStack(alignment: .top, spacing: LauncherDesignTokens.Spacing.small) {
+                                    LauncherArtifactGlyph(artifact: artifact)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(artifact.label)
+                                        Text("\(artifact.category.displayName) · \(artifact.sizeLabel)")
+                                            .font(LauncherTypography.fineDetail)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                        Text(artifact.path)
+                                            .font(LauncherTypography.fineDetail)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .buttonStyle(.plain)
+
+                        Button("Open") {
+                            openArtifact(artifact)
+                        }
+                        .buttonStyle(LauncherSecondaryButtonStyle())
+                        .disabled(!artifact.exists)
                     }
-                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(artifact.label), \(artifact.category.displayName), \(artifact.exists ? artifact.sizeLabel : "missing")")
                 }
             }
         }
