@@ -253,6 +253,216 @@ struct BackendSupervisorTests {
     }
 }
 
+struct LauncherProjectActionClientTests {
+    @Test
+    func apiClientPostsProjectCreateRequestAndDecodesSnapshot() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProjectAPISuccessURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        ProjectAPISuccessURLProtocol.capturedRequest = nil
+        ProjectAPISuccessURLProtocol.capturedBody = nil
+        defer {
+            ProjectAPISuccessURLProtocol.capturedRequest = nil
+            ProjectAPISuccessURLProtocol.capturedBody = nil
+        }
+
+        let created = try await LauncherProjectAPIClient(session: session).createProject(
+            backendURL: URL(string: "http://127.0.0.1:8765")!,
+            request: LauncherProjectCreateRequest(
+                title: "Native API Paper",
+                sourceDirectory: "/tmp/source"
+            )
+        )
+
+        #expect(created.id == "abc123def456")
+        #expect(created.title == "Native API Paper")
+        #expect(created.workspacePath == "/tmp/workspace")
+
+        let request = try #require(ProjectAPISuccessURLProtocol.capturedRequest)
+        let body = try #require(ProjectAPISuccessURLProtocol.capturedBody)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/projects")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(payload["title"] as? String == "Native API Paper")
+        #expect(payload["source_directory"] as? String == "/tmp/source")
+        #expect(payload["workspace_path"] == nil)
+    }
+
+    @Test
+    func apiClientThrowsForNonSuccessResponse() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProjectAPIErrorURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        await #expect(throws: LauncherError.self) {
+            _ = try await LauncherProjectAPIClient(session: session).createProject(
+                backendURL: URL(string: "http://127.0.0.1:8765")!,
+                request: LauncherProjectCreateRequest(title: "Broken")
+            )
+        }
+    }
+
+    @Test
+    func localProjectCreationWritesProjectIndexAndPayload() async throws {
+        let dataRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        var settings = LauncherSettings.defaultValue()
+        settings.dataRoot = dataRoot.path
+        let sourceDirectory = dataRoot.appendingPathComponent("source", isDirectory: true).path
+
+        let created = try await LauncherLocalProjectActionClient().createProject(
+            settings: settings,
+            request: LauncherProjectCreateRequest(
+                title: "Native Onboarding Paper",
+                venue: "ICLR 2027",
+                description: "Created by the native launcher.",
+                sourceDirectory: sourceDirectory
+            )
+        )
+
+        #expect(created.title == "Native Onboarding Paper")
+        #expect(created.lastStatus == "draft")
+        #expect(created.latestRunID == nil)
+        #expect(created.workspacePath.hasSuffix("/workspaces/native-onboarding-paper"))
+        #expect(FileManager.default.fileExists(atPath: dataRoot.appendingPathComponent("projects", isDirectory: true).path))
+        #expect(FileManager.default.fileExists(atPath: dataRoot.appendingPathComponent("workspaces", isDirectory: true).path))
+        #expect(FileManager.default.fileExists(atPath: dataRoot.appendingPathComponent("uploads", isDirectory: true).path))
+
+        let indexURL = dataRoot.appendingPathComponent("projects_index.json")
+        let indexData = try Data(contentsOf: indexURL)
+        let indexPayload = try #require(JSONSerialization.jsonObject(with: indexData) as? [String: Any])
+        #expect((indexPayload["projects"] as? [String])?.contains(created.id) == true)
+
+        let projectURL = dataRoot
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(created.id, isDirectory: true)
+            .appendingPathComponent("project.json")
+        let projectData = try Data(contentsOf: projectURL)
+        let projectPayload = try #require(JSONSerialization.jsonObject(with: projectData) as? [String: Any])
+        let ingest = try #require(projectPayload["ingest"] as? [String: Any])
+        let setup = try #require(projectPayload["setup"] as? [String: Any])
+
+        #expect(projectPayload["title"] as? String == "Native Onboarding Paper")
+        #expect(setup["venue"] as? String == "ICLR 2027")
+        #expect(ingest["source_directory"] as? String == sourceDirectory)
+        #expect(ingest["enabled"] as? Bool == true)
+    }
+
+    @Test
+    func localProjectCreationExpandsWorkspaceTildeAndUsesPythonSlugFallback() async throws {
+        let dataRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        var settings = LauncherSettings.defaultValue()
+        settings.dataRoot = dataRoot.path
+
+        let emptyTitle = try await LauncherLocalProjectActionClient().createProject(
+            settings: settings,
+            request: LauncherProjectCreateRequest(title: "")
+        )
+        #expect(emptyTitle.title == "Untitled Paper")
+        #expect(emptyTitle.workspacePath.hasSuffix("/workspaces/paper-project"))
+
+        let explicitWorkspace = try await LauncherLocalProjectActionClient().createProject(
+            settings: settings,
+            request: LauncherProjectCreateRequest(
+                title: "Explicit Workspace",
+                workspacePath: "~/PaperOrchestraNativeWorkspace"
+            )
+        )
+        #expect(explicitWorkspace.workspacePath == "\(NSHomeDirectory())/PaperOrchestraNativeWorkspace")
+    }
+}
+
+private final class ProjectAPISuccessURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var capturedRequest: URLRequest?
+    nonisolated(unsafe) static var capturedBody: Data?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.capturedRequest = request
+        Self.capturedBody = bodyData(from: request)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 201,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data = Data("""
+        {
+          "project": {
+            "project_id": "abc123def456",
+            "title": "Native API Paper",
+            "wizard_step": "setup",
+            "last_status": "draft",
+            "workspace_path": "/tmp/workspace",
+            "latest_run_id": null,
+            "updated_at": "2026-06-21T00:00:00+00:00"
+          }
+        }
+        """.utf8)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class ProjectAPIErrorURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 500,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"detail":"failed"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private func bodyData(from request: URLRequest) -> Data? {
+    if let body = request.httpBody {
+        return body
+    }
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    let bufferSize = 1024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+    while stream.hasBytesAvailable {
+        let read = stream.read(buffer, maxLength: bufferSize)
+        if read <= 0 {
+            break
+        }
+        data.append(buffer, count: read)
+    }
+    return data
+}
+
 private enum HealthResult {
     case healthy
     case unhealthy

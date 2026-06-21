@@ -13,6 +13,7 @@ public final class LauncherWorkspaceCoordinator {
     private let notificationCoordinator: LauncherNotificationCoordinator
     private let inputActionClient: LauncherInputActionPerforming
     private let runActionClient: LauncherRunActionPerforming
+    private let projectActionClient: LauncherProjectActionPerforming
 
     public init(
         settings: LauncherSettings,
@@ -20,7 +21,8 @@ public final class LauncherWorkspaceCoordinator {
         workspaceProvider: LauncherWorkspaceProviding,
         notificationCoordinator: LauncherNotificationCoordinator,
         inputActionClient: LauncherInputActionPerforming = LauncherNativeInputActionClient(),
-        runActionClient: LauncherRunActionPerforming = LauncherNativeRunActionClient()
+        runActionClient: LauncherRunActionPerforming = LauncherNativeRunActionClient(),
+        projectActionClient: LauncherProjectActionPerforming = LauncherProjectActionClient()
     ) {
         self.settings = settings
         self.settingsStore = settingsStore
@@ -28,6 +30,7 @@ public final class LauncherWorkspaceCoordinator {
         self.notificationCoordinator = notificationCoordinator
         self.inputActionClient = inputActionClient
         self.runActionClient = runActionClient
+        self.projectActionClient = projectActionClient
         selectedProjectID = settings.preferredReopenLastContext ? settings.lastSelectedProjectID : nil
         selectedRunID = settings.preferredReopenLastContext ? settings.lastSelectedRunID : nil
         selectedStageName = nil
@@ -102,6 +105,26 @@ public final class LauncherWorkspaceCoordinator {
             selectedStageName: selectedStageName
         )
         reconcileSelection()
+    }
+
+    @discardableResult
+    public func createProject(
+        request: LauncherProjectCreateRequest,
+        backendURL: URL?
+    ) async throws -> LauncherProjectSnapshot {
+        let created = try await projectActionClient.createProject(
+            settings: settings,
+            backendURL: backendURL,
+            request: request
+        )
+        selectedProjectID = created.id
+        selectedRunID = nil
+        selectedStageName = nil
+        settings.lastSelectedProjectID = created.id
+        settings.lastSelectedRunID = nil
+        try? settingsStore.save(settings)
+        await refresh(backendReachable: backendURL != nil)
+        return snapshot.selectedProject ?? created
     }
 
     public func selectStage(name: String?) {

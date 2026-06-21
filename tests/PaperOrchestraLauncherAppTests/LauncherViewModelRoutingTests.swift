@@ -109,6 +109,82 @@ final class LauncherViewModelRoutingTests: XCTestCase {
         XCTAssertEqual(viewModel.workspaceSelection.selectedInputPanel, .guidelines)
     }
 
+    func test_createProjectSelectsNewProjectAndRoutesToInputs() async throws {
+        let createdProject = LauncherProjectSnapshot(
+            id: "project-new",
+            title: "New Native Project",
+            wizardStep: "setup",
+            lastStatus: "draft",
+            workspacePath: "/tmp/project-new",
+            latestRunID: nil,
+            updatedAt: "2026-06-21T00:00:00+00:00"
+        )
+        let projectClient = RecordingProjectActionClient(createdProject: createdProject)
+        let provider = FixtureWorkspaceProvider(
+            snapshots: [
+                FixtureWorkspaceProvider.makeSnapshot(selectedProjectID: "project-1", selectedRunID: "run-1", selectedStageName: "literature"),
+                FixtureWorkspaceProvider.makeProjectSnapshot(selectedProject: createdProject),
+            ]
+        )
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: provider,
+            notificationScheduler: NoopNotificationScheduler(),
+            projectActionClient: projectClient
+        )
+
+        let created = await viewModel.createProject(
+            LauncherProjectCreateRequest(
+                title: "New Native Project",
+                venue: "ICLR 2027",
+                description: "Native onboarding",
+                sourceDirectory: "/tmp/source"
+            )
+        )
+
+        XCTAssertTrue(created)
+        XCTAssertEqual(viewModel.snapshot.selectedProject?.id, "project-new")
+        XCTAssertEqual(viewModel.workspaceSelection.destination, WorkspaceDestination.inputs(panel: .idea))
+        XCTAssertNil(viewModel.workspaceSelection.selectedStageName)
+        XCTAssertNil(viewModel.workspaceSelection.selectedArtifactPath)
+        XCTAssertEqual(projectClient.lastRequest?.title, "New Native Project")
+        XCTAssertEqual(projectClient.lastBackendURL?.absoluteString, LauncherSettings.defaultValue().backendURL.absoluteString)
+    }
+
+    func test_startRunRoutesIncompleteProjectToFirstBlockingInput() async throws {
+        let project = LauncherProjectSnapshot(
+            id: "project-new",
+            title: "New Native Project",
+            wizardStep: "inputs",
+            lastStatus: "draft",
+            workspacePath: "/tmp/project-new",
+            latestRunID: nil,
+            updatedAt: "2026-06-21T00:00:00+00:00"
+        )
+        let viewModel = LauncherViewModel(
+            settingsStore: LauncherSettingsStore(settingsURL: temporarySettingsURL()),
+            settings: LauncherSettings.defaultValue(),
+            workspaceProvider: FixtureWorkspaceProvider(
+                snapshots: [
+                    FixtureWorkspaceProvider.makeProjectSnapshot(
+                        selectedProject: project,
+                        inputs: FixtureWorkspaceProvider.makeIncompleteInputs()
+                    )
+                ]
+            ),
+            notificationScheduler: NoopNotificationScheduler()
+        )
+        viewModel.phase = .running
+        viewModel.selectWorkflowDestination(.review)
+
+        viewModel.startRun()
+
+        try await waitForSelection(viewModel, equals: .inputs(panel: .idea))
+        XCTAssertEqual(viewModel.phase, .running)
+        XCTAssertEqual(viewModel.latestInputActionError, "Complete Idea before starting a run.")
+    }
+
     func test_refreshDelayUsesIdleCadenceWhenBackendIsHealthyAndNoRunIsSelected() {
         let snapshot = FixtureWorkspaceProvider.makeSnapshot(
             selectedProjectID: "project-2",
@@ -503,10 +579,103 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
             )
         )
     }
+
+    static func makeProjectSnapshot(
+        selectedProject: LauncherProjectSnapshot,
+        inputs: LauncherProjectInputsSnapshot? = nil
+    ) -> LauncherWorkspaceSnapshot {
+        LauncherWorkspaceSnapshot(
+            projects: [selectedProject],
+            selectedProject: selectedProject,
+            selectedProjectInputs: inputs,
+            selectedRun: nil,
+            selectedStage: nil,
+            integrations: LauncherIntegrationSnapshot(
+                backendReachable: true,
+                repoConfigured: true,
+                pythonConfigured: true,
+                dataRoot: "/tmp/gui",
+                host: "127.0.0.1",
+                port: 8765
+            )
+        )
+    }
+
+    static func makeIncompleteInputs() -> LauncherProjectInputsSnapshot {
+        makeInputs(requiredValidation: LauncherInputValidationSnapshot(completed: false))
+    }
+
+    private static func makeInputs(requiredValidation: LauncherInputValidationSnapshot) -> LauncherProjectInputsSnapshot {
+        LauncherProjectInputsSnapshot(
+            status: "draft",
+            summary: "Required inputs are incomplete.",
+            hasBlockers: false,
+            updatedAt: "2026-06-21T00:00:00+00:00",
+            idea: LauncherIdeaInputSnapshot(
+                editorMode: "structured",
+                problemStatement: "",
+                coreHypothesis: "",
+                methodology: "",
+                expectedContribution: "",
+                notes: "",
+                rawMarkdown: "",
+                validation: requiredValidation
+            ),
+            experimental: LauncherExperimentalInputSnapshot(
+                editorMode: "structured",
+                setupText: "",
+                rawNumericData: "",
+                qualitativeObservations: "",
+                logText: "",
+                sourceFilename: "",
+                validation: requiredValidation
+            ),
+            template: LauncherTemplateInputSnapshot(
+                editorMode: "raw",
+                text: "",
+                sourceFilename: "",
+                validation: requiredValidation
+            ),
+            guidelines: LauncherGuidelinesInputSnapshot(
+                editorMode: "structured",
+                deadline: "",
+                pageLimit: "",
+                requiredSections: "",
+                formattingNotes: "",
+                guidelinesText: "",
+                sourceFilename: "",
+                validation: requiredValidation
+            ),
+            figures: LauncherFiguresInputSnapshot(
+                items: [],
+                validation: LauncherInputValidationSnapshot(completed: false)
+            )
+        )
+    }
 }
 
 private struct NoopNotificationScheduler: LauncherNotificationScheduling {
     func notify(title: String, body: String) async {}
+}
+
+private final class RecordingProjectActionClient: LauncherProjectActionPerforming, @unchecked Sendable {
+    let createdProject: LauncherProjectSnapshot
+    private(set) var lastRequest: LauncherProjectCreateRequest?
+    private(set) var lastBackendURL: URL?
+
+    init(createdProject: LauncherProjectSnapshot) {
+        self.createdProject = createdProject
+    }
+
+    func createProject(
+        settings: LauncherSettings,
+        backendURL: URL?,
+        request: LauncherProjectCreateRequest
+    ) async throws -> LauncherProjectSnapshot {
+        lastRequest = request
+        lastBackendURL = backendURL
+        return createdProject
+    }
 }
 
 private final class FailingBackendSupervisor: LauncherViewModel.BackendEnsuring, @unchecked Sendable {

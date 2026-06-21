@@ -28,12 +28,12 @@ struct ReviewWorkspacePresentation {
         title = "Review"
         summary = selectedRun?.summary ?? "No run summary is available yet."
         latestRunStatusLabel = Self.prettyLabel(selectedRun?.status ?? "not_started")
-        blockerCount = roadblocks.count
 
         if let selectedRun, (selectedRun.status == "paused" || selectedRun.status == "interrupted") {
             primaryAction = .resume
             canStartRun = viewModel.canResumeRun
             launchActionTitle = "Resume Run"
+            blockerCount = roadblocks.count
             readinessSummary = "The selected run is paused and ready to resume from \(roadblockStageLabel ?? selectedStageLabel ?? "the current stage")."
             if let roadblock = roadblocks.first {
                 nextActionSummary = "Current blocker: \(roadblock.message)"
@@ -44,6 +44,7 @@ struct ReviewWorkspacePresentation {
             primaryAction = .retryStage
             canStartRun = viewModel.canRetryStage
             launchActionTitle = "Retry Stage"
+            blockerCount = roadblocks.count
             readinessSummary = "The selected run failed and can retry from \(roadblockStageLabel ?? selectedStageLabel ?? "the current stage")."
             if let roadblock = roadblocks.first {
                 nextActionSummary = "Current blocker: \(roadblock.message)"
@@ -52,14 +53,29 @@ struct ReviewWorkspacePresentation {
             }
         } else {
             primaryAction = .start
-            canStartRun = viewModel.canStartRun
             launchActionTitle = "Start Run"
-            readinessSummary = canStartRun
-                ? "The selected project is ready to start."
-                : "Select a project before launching a run."
-            nextActionSummary = canStartRun
-                ? "Native run controls are ready. The web fallback is optional for this action."
-                : "Select a project before starting a native pipeline run."
+            let project = viewModel.snapshot.selectedProject
+            let inputs = viewModel.snapshot.selectedProjectInputs
+            let blockingInput = inputs?.launchBlockingInputName.map(WorkspaceInputPanel.init(inputName:))
+            let inputsReady = inputs?.readyForLaunch == true
+            canStartRun = viewModel.canStartRun && inputsReady
+            blockerCount = inputs?.launchBlockerCount ?? 0
+            if project == nil {
+                readinessSummary = "Select a project before launching a run."
+                nextActionSummary = "Select a project before starting a native pipeline run."
+            } else if !viewModel.canStartRun {
+                readinessSummary = "The native launcher is still preparing run controls."
+                nextActionSummary = "Wait for the native launcher to finish starting."
+            } else if inputs == nil {
+                readinessSummary = "Input readiness has not loaded for the selected project."
+                nextActionSummary = "Open Inputs and refresh the project input status."
+            } else if let blockingInput {
+                readinessSummary = "Complete \(blockingInput.title) before launching a run."
+                nextActionSummary = "Open the \(blockingInput.title) input and save or validate it."
+            } else {
+                readinessSummary = "The selected project is ready to start."
+                nextActionSummary = "Native run controls are ready. The web fallback is optional for this action."
+            }
         }
     }
 
@@ -83,7 +99,7 @@ struct ReviewWorkspaceView: View {
                 VStack(alignment: .leading, spacing: LauncherDesignTokens.Spacing.medium) {
                     HStack(alignment: .firstTextBaseline, spacing: LauncherDesignTokens.Spacing.small) {
                         Image(systemName: presentation.canStartRun ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(presentation.canStartRun ? .green : .orange)
+                            .foregroundStyle(presentation.canStartRun ? LauncherSemanticColors.success : LauncherSemanticColors.warning)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Launch readiness")
                                 .font(LauncherTypography.cardTitle)
@@ -142,7 +158,7 @@ struct ReviewWorkspaceView: View {
 
     private func helperText(for presentation: ReviewWorkspacePresentation) -> String {
         guard presentation.canStartRun else {
-            return "A project must be selected first."
+            return presentation.nextActionSummary
         }
         switch presentation.primaryAction {
         case .start:

@@ -38,6 +38,21 @@ struct WorkspaceSelection: Equatable {
 }
 
 extension WorkspaceInputPanel {
+    init(inputName: LauncherInputName) {
+        switch inputName {
+        case .idea:
+            self = .idea
+        case .experimental:
+            self = .experimental
+        case .template:
+            self = .template
+        case .guidelines:
+            self = .guidelines
+        case .figures:
+            self = .figures
+        }
+    }
+
     var title: String {
         switch self {
         case .idea:

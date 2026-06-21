@@ -1,4 +1,4 @@
-# Native Artifact Browser Design Brief
+# Native Artifact Browser And Project Onboarding Design Brief
 
 ## Main Window Anatomy
 
@@ -6,6 +6,10 @@ The artifact browser remains inside the existing native launcher window. The
 sidebar and workspace routing stay unchanged; the Outputs workspace becomes the
 primary artifact browsing surface, while the inspector mirrors detail for the
 selected artifact.
+
+The project onboarding follow-up also stays within the existing native launcher
+window. Setup becomes the primary place to create a project, and the sidebar
+offers a secondary New Project entry point near the project list.
 
 ## Component Inventory
 
@@ -15,6 +19,11 @@ selected artifact.
 - Selected artifact detail surface
 - Shared artifact metadata and action controls
 - Inspector artifact detail surface
+- Native New Project sheet
+- Project metadata fields for title, venue, description, and optional source
+  directory
+- Source directory picker backed by a standard macOS open panel
+- Project creation progress and error state
 
 ## Visual Acceptance Criteria
 
@@ -26,6 +35,10 @@ selected artifact.
   backend contract changes.
 - Missing artifacts remain visible with a warning state and disabled Open/Reveal
   actions.
+- Project creation uses the API-first backend contract when the backend is
+  reachable, with local storage fallback only for native recovery/offline mode.
+- Creating a project refreshes the snapshot, selects the new project, and routes
+  the operator to the native Inputs workspace.
 
 ## Relevant Apple Resources
 

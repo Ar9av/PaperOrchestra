@@ -13,8 +13,8 @@ final class ReviewWorkspaceStateTests: XCTestCase {
         XCTAssertEqual(presentation.title, "Review")
         XCTAssertEqual(presentation.summary, "Current run")
         XCTAssertEqual(presentation.latestRunStatusLabel, "Running")
-        XCTAssertEqual(presentation.nextActionSummary, "Select a project before starting a native pipeline run.")
-        XCTAssertEqual(presentation.blockerCount, 1)
+        XCTAssertEqual(presentation.nextActionSummary, "Wait for the native launcher to finish starting.")
+        XCTAssertEqual(presentation.blockerCount, 0)
         XCTAssertFalse(presentation.canStartRun)
 
         viewModel.phase = .running
@@ -22,7 +22,7 @@ final class ReviewWorkspaceStateTests: XCTestCase {
         let updatedPresentation = ReviewWorkspacePresentation(viewModel: viewModel)
         XCTAssertTrue(updatedPresentation.canStartRun)
         XCTAssertEqual(updatedPresentation.launchActionTitle, "Start Run")
-        XCTAssertEqual(updatedPresentation.blockerCount, 1)
+        XCTAssertEqual(updatedPresentation.blockerCount, 0)
         XCTAssertEqual(updatedPresentation.nextActionSummary, "Native run controls are ready. The web fallback is optional for this action.")
     }
 
@@ -35,6 +35,22 @@ final class ReviewWorkspaceStateTests: XCTestCase {
         XCTAssertTrue(presentation.canStartRun)
         XCTAssertEqual(presentation.readinessSummary, "The selected project is ready to start.")
         XCTAssertEqual(presentation.nextActionSummary, "Native run controls are ready. The web fallback is optional for this action.")
+    }
+
+    func test_reviewPresentation_blocksStartWhenRequiredInputsAreIncomplete() throws {
+        let viewModel = makeViewModel(
+            run: nil,
+            inputs: FixtureWorkspaceProvider.incompleteInputs()
+        )
+        viewModel.phase = .running
+
+        let presentation = ReviewWorkspacePresentation(viewModel: viewModel)
+
+        XCTAssertFalse(presentation.canStartRun)
+        XCTAssertEqual(presentation.launchActionTitle, "Start Run")
+        XCTAssertEqual(presentation.blockerCount, 4)
+        XCTAssertEqual(presentation.readinessSummary, "Complete Idea before launching a run.")
+        XCTAssertEqual(presentation.nextActionSummary, "Open the Idea input and save or validate it.")
     }
 
     func test_reviewPresentation_prioritizesResumeForPausedRunWithRoadblock() throws {
@@ -122,14 +138,18 @@ final class ReviewWorkspaceStateTests: XCTestCase {
         XCTAssertEqual(presentation.nextActionSummary, "Current blocker: LaTeX compile failed.")
     }
 
-    private func makeViewModel(run: LauncherRunSnapshot? = nil, backendReachable: Bool = true) -> LauncherViewModel {
+    private func makeViewModel(
+        run: LauncherRunSnapshot? = nil,
+        backendReachable: Bool = true,
+        inputs: LauncherProjectInputsSnapshot? = FixtureWorkspaceProvider.readyInputs()
+    ) -> LauncherViewModel {
         let settingsURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
             .appendingPathComponent("launcher-settings.json")
         return LauncherViewModel(
             settingsStore: LauncherSettingsStore(settingsURL: settingsURL),
             settings: LauncherSettings.defaultValue(),
-            workspaceProvider: FixtureWorkspaceProvider(run: run, backendReachable: backendReachable),
+            workspaceProvider: FixtureWorkspaceProvider(run: run, backendReachable: backendReachable, inputs: inputs),
             notificationScheduler: NoopNotificationScheduler()
         )
     }
@@ -138,10 +158,16 @@ final class ReviewWorkspaceStateTests: XCTestCase {
 private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unchecked Sendable {
     private let run: LauncherRunSnapshot?
     private let backendReachable: Bool
+    private let inputs: LauncherProjectInputsSnapshot?
 
-    init(run: LauncherRunSnapshot? = nil, backendReachable: Bool = true) {
+    init(
+        run: LauncherRunSnapshot? = nil,
+        backendReachable: Bool = true,
+        inputs: LauncherProjectInputsSnapshot? = FixtureWorkspaceProvider.readyInputs()
+    ) {
         self.run = run
         self.backendReachable = backendReachable
+        self.inputs = inputs
     }
 
     func loadSnapshot(
@@ -174,6 +200,7 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
         return LauncherWorkspaceSnapshot(
             projects: [project],
             selectedProject: project,
+            selectedProjectInputs: inputs,
             selectedRun: resolvedRun,
             selectedStage: resolvedRun.stages.first(where: { $0.name == resolvedRun.currentStage }),
             integrations: LauncherIntegrationSnapshot(
@@ -183,6 +210,62 @@ private final class FixtureWorkspaceProvider: LauncherWorkspaceProviding, @unche
                 dataRoot: "/tmp/gui",
                 host: "127.0.0.1",
                 port: 8765
+            )
+        )
+    }
+
+    static func readyInputs() -> LauncherProjectInputsSnapshot {
+        makeInputs(requiredValidation: LauncherInputValidationSnapshot(completed: true))
+    }
+
+    static func incompleteInputs() -> LauncherProjectInputsSnapshot {
+        makeInputs(requiredValidation: LauncherInputValidationSnapshot(completed: false))
+    }
+
+    private static func makeInputs(requiredValidation: LauncherInputValidationSnapshot) -> LauncherProjectInputsSnapshot {
+        LauncherProjectInputsSnapshot(
+            status: requiredValidation.completed ? "validated" : "draft",
+            summary: requiredValidation.completed ? "All required inputs are ready." : "Required inputs are incomplete.",
+            hasBlockers: false,
+            updatedAt: "2026-06-21T00:00:00+00:00",
+            idea: LauncherIdeaInputSnapshot(
+                editorMode: "structured",
+                problemStatement: "",
+                coreHypothesis: "",
+                methodology: "",
+                expectedContribution: "",
+                notes: "",
+                rawMarkdown: "",
+                validation: requiredValidation
+            ),
+            experimental: LauncherExperimentalInputSnapshot(
+                editorMode: "structured",
+                setupText: "",
+                rawNumericData: "",
+                qualitativeObservations: "",
+                logText: "",
+                sourceFilename: "",
+                validation: requiredValidation
+            ),
+            template: LauncherTemplateInputSnapshot(
+                editorMode: "raw",
+                text: "",
+                sourceFilename: "",
+                validation: requiredValidation
+            ),
+            guidelines: LauncherGuidelinesInputSnapshot(
+                editorMode: "structured",
+                deadline: "",
+                pageLimit: "",
+                requiredSections: "",
+                formattingNotes: "",
+                guidelinesText: "",
+                sourceFilename: "",
+                validation: requiredValidation
+            ),
+            figures: LauncherFiguresInputSnapshot(
+                items: [],
+                validation: LauncherInputValidationSnapshot(completed: false)
             )
         )
     }

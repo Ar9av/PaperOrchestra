@@ -88,6 +88,13 @@ public struct LauncherFiguresInputSnapshot: Equatable, Sendable {
 }
 
 public struct LauncherProjectInputsSnapshot: Equatable, Sendable {
+    public static let launchRequiredInputs: [LauncherInputName] = [
+        .idea,
+        .experimental,
+        .template,
+        .guidelines,
+    ]
+
     public let status: String
     public let summary: String
     public let hasBlockers: Bool
@@ -111,6 +118,31 @@ public struct LauncherProjectInputsSnapshot: Equatable, Sendable {
         case .figures:
             return figures.validation
         }
+    }
+
+    public var launchBlockingInputName: LauncherInputName? {
+        for inputName in Self.launchRequiredInputs {
+            let validation = validation(for: inputName)
+            if validation.hasBlockers || !validation.completed {
+                return inputName
+            }
+        }
+        return LauncherInputName.allCases.first { validation(for: $0).hasBlockers }
+    }
+
+    public var launchBlockerCount: Int {
+        let requiredBlockers = Self.launchRequiredInputs.filter { inputName in
+            let validation = validation(for: inputName)
+            return validation.hasBlockers || !validation.completed
+        }.count
+        let optionalBlockers = LauncherInputName.allCases.filter { inputName in
+            !Self.launchRequiredInputs.contains(inputName) && validation(for: inputName).hasBlockers
+        }.count
+        return requiredBlockers + optionalBlockers
+    }
+
+    public var readyForLaunch: Bool {
+        !hasBlockers && launchBlockingInputName == nil
     }
 }
 
@@ -202,6 +234,36 @@ public struct LauncherProjectSnapshot: Equatable, Identifiable, Sendable {
     public let workspacePath: String
     public let latestRunID: String?
     public let updatedAt: String
+}
+
+public struct LauncherProjectCreateRequest: Equatable, Codable, Sendable {
+    public let title: String
+    public let venue: String
+    public let description: String
+    public let sourceDirectory: String
+    public let workspacePath: String?
+
+    public init(
+        title: String,
+        venue: String = "",
+        description: String = "",
+        sourceDirectory: String = "",
+        workspacePath: String? = nil
+    ) {
+        self.title = title
+        self.venue = venue
+        self.description = description
+        self.sourceDirectory = sourceDirectory
+        self.workspacePath = workspacePath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case venue
+        case description
+        case sourceDirectory = "source_directory"
+        case workspacePath = "workspace_path"
+    }
 }
 
 public enum LauncherArtifactCategory: String, CaseIterable, Codable, Identifiable, Sendable {
