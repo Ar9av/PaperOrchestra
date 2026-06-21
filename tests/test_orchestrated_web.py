@@ -291,6 +291,211 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertIn("integrations", payload)
 
+    def test_api_create_project_returns_json_and_persists_ingest_source(self) -> None:
+        source_directory = str(Path(self.tempdir.name) / "source")
+
+        response = self.client.post(
+            "/api/projects",
+            json={
+                "title": "Native API Paper",
+                "venue": "ICLR 2027",
+                "description": "Created by a native client.",
+                "source_directory": source_directory,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        project = payload["project"]
+        self.assertEqual(project["title"], "Native API Paper")
+        self.assertEqual(project["venue"], "ICLR 2027")
+        self.assertEqual(project["ingest"]["source_directory"], source_directory)
+        self.assertTrue(project["ingest"]["enabled"])
+        self.assertTrue((self.data_root / "projects" / project["project_id"] / "project.json").exists())
+
+        list_response = self.client.get("/api/projects")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["projects"][0]["project_id"], project["project_id"])
+
+    def test_api_setup_updates_project_and_syncs_workspace(self) -> None:
+        project = storage.create_project("Draft Paper", "", "", data_root=self.data_root)
+        source_directory = str(Path(self.tempdir.name) / "source-materials")
+
+        response = self.client.post(
+            f"/api/projects/{project['project_id']}/setup",
+            json={
+                "title": "Ready Paper",
+                "venue": "NeurIPS 2027",
+                "description": "Ready for native inputs.",
+                "source_directory": source_directory,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        saved = storage.load_project(project["project_id"], self.data_root)
+        self.assertEqual(saved["title"], "Ready Paper")
+        self.assertEqual(saved["wizard_step"], "inputs")
+        self.assertEqual(saved["ingest"]["source_directory"], source_directory)
+        self.assertTrue(Path(saved["workspace_path"], "inputs", "idea.md").exists())
+
+    def test_api_save_input_idea_raw_updates_canonical_text_and_validation(self) -> None:
+        project = storage.create_project("Native Input Paper", "", "", data_root=self.data_root)
+        raw_markdown = (
+            "## Problem Statement\n\nNative project setup needs a JSON API.\n\n"
+            "## Core Hypothesis\n\nShared backend actions prevent drift.\n\n"
+            "## Proposed Methodology (High-Level Technical Approach)\n\nRoute native actions through FastAPI.\n\n"
+            "## Expected Contribution\n\nA cleaner native integration boundary.\n"
+        )
+
+        response = self.client.post(
+            f"/api/projects/{project['project_id']}/inputs/idea",
+            json={
+                "editor_mode": "raw",
+                "raw_markdown": raw_markdown,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("validation", payload)
+        self.assertIn("input", payload)
+        saved = storage.load_project(project["project_id"], self.data_root)
+        self.assertEqual(saved["idea"]["raw_markdown"], raw_markdown)
+        self.assertEqual(saved["idea"]["problem_statement"], "Native project setup needs a JSON API.")
+        self.assertEqual(
+            Path(saved["workspace_path"], "inputs", "idea.md").read_text(encoding="utf-8"),
+            raw_markdown,
+        )
+
+    def test_api_start_run_reports_validation_blockers_as_conflict(self) -> None:
+        project = storage.create_project("Blocked API Start", "", "", data_root=self.data_root)
+
+        response = self.client.post(f"/api/projects/{project['project_id']}/runs/start")
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["error"], "inputs_blocked")
+        self.assertEqual(payload["detail"], "Project inputs have blockers.")
+        self.assertTrue(payload["validation"]["has_blockers"])
+
+    def test_api_start_run_returns_decorated_run_state(self) -> None:
+        project = storage.create_project("Runnable API Paper", "", "", data_root=self.data_root)
+
+        def fake_validation(_project: dict[str, object], _data_root: Path) -> dict[str, object]:
+            return {
+                "status": "validated",
+                "summary": "All required inputs are ready.",
+                "updated_at": storage.utc_now(),
+                "has_blockers": False,
+                "inputs": {},
+            }
+
+        def fake_start(project_id: str, data_root: Path) -> str:
+            run_payload = storage.create_pipeline_run(project_id, data_root)
+            run_payload = storage.update_run_fields(
+                project_id,
+                run_payload["run_id"],
+                data_root,
+                event_type="run_started",
+                pid=12345,
+                status="running",
+                current_stage="starting",
+                stage="starting",
+                summary="Pipeline run started.",
+            )
+            saved_project = storage.load_project(project_id, data_root)
+            saved_project["latest_run_id"] = run_payload["run_id"]
+            saved_project["last_status"] = "running"
+            storage.save_project(saved_project, data_root)
+            return run_payload["run_id"]
+
+        with mock.patch("gui_app.web.storage.validate_project_inputs", side_effect=fake_validation):
+            with mock.patch("gui_app.web.orchestrator.start_run", side_effect=fake_start):
+                with mock.patch("gui_app.storage.is_pid_running", side_effect=lambda pid: bool(pid)):
+                    response = self.client.post(f"/api/projects/{project['project_id']}/runs/start")
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.json()
+        self.assertEqual(payload["run"]["status"], "running")
+        self.assertEqual(payload["run"]["summary"], "Pipeline run started.")
+        self.assertIn("validate", payload["run"]["stages"])
+
+    def test_api_retry_resume_and_cancel_run_return_updated_state(self) -> None:
+        project = storage.create_project("Run Action API Paper", "", "", data_root=self.data_root)
+        run_payload = storage.create_pipeline_run(project["project_id"], self.data_root)
+        for stage_name in ("ingest", "validate", "outline"):
+            run_payload = storage.update_stage_state(
+                run_payload,
+                stage_name,
+                self.data_root,
+                status="succeeded",
+                summary=f"{stage_name} done",
+            )
+        storage.update_stage_state(
+            run_payload,
+            "plotting",
+            self.data_root,
+            status="failed",
+            summary="plotting failed",
+        )
+
+        with mock.patch("gui_app.orchestrator._spawn_worker", return_value=23456):
+            with mock.patch("gui_app.storage.is_pid_running", side_effect=lambda pid: bool(pid)):
+                retry_response = self.client.post(
+                    f"/api/projects/{project['project_id']}/runs/{run_payload['run_id']}/retry/plotting"
+                )
+
+        self.assertEqual(retry_response.status_code, 202)
+        retry_payload = retry_response.json()["run"]
+        self.assertEqual(retry_payload["status"], "running")
+        self.assertEqual(retry_payload["current_stage"], "plotting")
+
+        with mock.patch("gui_app.orchestrator._spawn_worker", return_value=34567):
+            with mock.patch("gui_app.storage.is_pid_running", side_effect=lambda pid: pid == 34567):
+                resume_response = self.client.post(
+                    f"/api/projects/{project['project_id']}/runs/{run_payload['run_id']}/resume"
+                )
+
+        self.assertEqual(resume_response.status_code, 200)
+        self.assertIn("run", resume_response.json())
+
+        with mock.patch("gui_app.storage.is_pid_running", return_value=False):
+            cancel_response = self.client.post(
+                f"/api/projects/{project['project_id']}/runs/{run_payload['run_id']}/cancel"
+            )
+
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(cancel_response.json()["run"]["status"], "cancelled")
+
+    def test_api_artifacts_returns_workspace_and_run_artifacts(self) -> None:
+        project = storage.create_project("Artifact API Paper", "", "", data_root=self.data_root)
+        project = storage.sync_workspace(project, self.data_root)
+        workspace = Path(project["workspace_path"])
+        final_pdf = workspace / "final" / "paper.pdf"
+        final_pdf.parent.mkdir(parents=True, exist_ok=True)
+        final_pdf.write_bytes(b"%PDF-1.4\n")
+        stage_artifact = workspace / "outline.json"
+        stage_artifact.write_text('{"ok": true}\n', encoding="utf-8")
+        run_payload = storage.create_pipeline_run(project["project_id"], self.data_root)
+        storage.save_stage_artifacts(
+            run_payload,
+            "outline",
+            self.data_root,
+            [str(stage_artifact)],
+        )
+        project["latest_run_id"] = run_payload["run_id"]
+        storage.save_project(project, self.data_root)
+
+        response = self.client.get(f"/api/projects/{project['project_id']}/artifacts")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        workspace_paths = {item["path"] for item in payload["workspace_artifacts"]}
+        run_paths = {item["path"] for item in payload["run_artifacts"]}
+        self.assertIn(str(final_pdf), workspace_paths)
+        self.assertIn(str(stage_artifact), run_paths)
+
     def test_inputs_step_renders_workbench_and_sections(self) -> None:
         project = storage.create_project("Inputs UI Paper", "", "", data_root=self.data_root)
 

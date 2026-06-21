@@ -455,6 +455,146 @@ async def _read_upload(upload: Any) -> tuple[str, bytes] | None:
     return filename, data
 
 
+async def _json_payload(request: Request) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        payload = {}
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Expected a JSON object.")
+    return payload
+
+
+def _payload_value(payload: dict[str, Any], key: str, default: str = "") -> str:
+    fields = payload.get("fields")
+    if isinstance(fields, dict) and key in fields:
+        raw = fields[key]
+    else:
+        raw = payload.get(key, default)
+    if isinstance(raw, list):
+        raw = raw[0] if raw else default
+    if raw is None:
+        return default
+    return str(raw)
+
+
+def _json_project_response(project: dict[str, Any], data_root: Path) -> JSONResponse:
+    return JSONResponse({
+        "project": storage.reconcile_project_runs(project, data_root),
+    })
+
+
+def _save_setup_payload(project: dict[str, Any], payload: dict[str, Any], data_root: Path) -> dict[str, Any]:
+    project["setup"].update({
+        "title": _payload_value(payload, "title"),
+        "venue": _payload_value(payload, "venue"),
+        "description": _payload_value(payload, "description"),
+    })
+    project["title"] = project["setup"]["title"] or project["title"]
+    project["venue"] = project["setup"]["venue"]
+    project["description"] = project["setup"]["description"]
+    project.setdefault("ingest", {})
+    project["ingest"]["source_directory"] = _payload_value(payload, "source_directory").strip()
+    project["ingest"]["enabled"] = bool(project["ingest"]["source_directory"])
+    project["wizard_step"] = "inputs"
+    storage.save_project(project, data_root)
+    return storage.sync_workspace(project, data_root)
+
+
+def _save_input_payload(
+    project: dict[str, Any],
+    input_name: str,
+    payload: dict[str, Any],
+    data_root: Path,
+) -> dict[str, Any]:
+    project["wizard_step"] = "inputs"
+
+    if input_name == "idea":
+        idea = project.get("idea", {})
+        editor_mode = _payload_value(payload, "editor_mode", "structured") or "structured"
+        idea["editor_mode"] = editor_mode
+        if editor_mode == "raw":
+            raw_markdown = _payload_value(payload, "raw_markdown")
+            idea.update(storage.parse_idea_markdown(raw_markdown))
+            idea["raw_markdown"] = raw_markdown
+        else:
+            idea.update({
+                "problem_statement": _payload_value(payload, "problem_statement"),
+                "core_hypothesis": _payload_value(payload, "core_hypothesis"),
+                "methodology": _payload_value(payload, "methodology"),
+                "expected_contribution": _payload_value(payload, "expected_contribution"),
+                "notes": _payload_value(payload, "notes"),
+            })
+            idea["raw_markdown"] = storage.idea_markdown({"idea": idea})
+        project["idea"] = idea
+
+    elif input_name == "experimental":
+        experimental = project.get("experimental", {})
+        editor_mode = _payload_value(payload, "editor_mode", "structured") or "structured"
+        experimental["editor_mode"] = editor_mode
+        if editor_mode == "raw":
+            raw_markdown = _payload_value(payload, "raw_markdown")
+            experimental.update(storage.parse_experimental_log(raw_markdown))
+            experimental["log_text"] = raw_markdown
+        else:
+            experimental.update({
+                "setup_text": _payload_value(payload, "setup_text"),
+                "raw_numeric_data": _payload_value(payload, "raw_numeric_data"),
+                "qualitative_observations": _payload_value(payload, "qualitative_observations"),
+            })
+            experimental["log_text"] = storage.experimental_markdown({"experimental": experimental})
+        project["experimental"] = experimental
+
+    elif input_name == "template":
+        template = project.get("template", {})
+        template["editor_mode"] = "raw"
+        template["text"] = _payload_value(payload, "template_text", _payload_value(payload, "text"))
+        project["template"] = template
+
+    elif input_name == "guidelines":
+        guidelines = project.get("guidelines", {})
+        editor_mode = _payload_value(payload, "editor_mode", "structured") or "structured"
+        guidelines["editor_mode"] = editor_mode
+        if editor_mode == "raw":
+            raw_text = _payload_value(payload, "guidelines_text")
+            guidelines["guidelines_text"] = raw_text
+            guidelines.update(storage.parse_guidelines_text(raw_text))
+        else:
+            guidelines.update({
+                "deadline": _payload_value(payload, "deadline"),
+                "page_limit": _payload_value(payload, "page_limit"),
+                "required_sections": _payload_value(payload, "required_sections"),
+                "formatting_notes": _payload_value(payload, "formatting_notes"),
+            })
+            guidelines["guidelines_text"] = storage.guidelines_markdown({"guidelines": guidelines})
+        project["guidelines"] = guidelines
+
+    elif input_name == "figures":
+        uploads = project.get("uploads", {})
+        figure_values = payload.get("figures", uploads.get("figures", []))
+        if not isinstance(figure_values, list):
+            raise HTTPException(status_code=400, detail="figures must be a list of paths.")
+        uploads["figures"] = [str(item) for item in figure_values if str(item).strip()]
+        project["uploads"] = uploads
+
+    else:
+        raise HTTPException(status_code=404, detail="Unknown input.")
+
+    storage.save_project(project, data_root)
+    validation = storage.validate_project_inputs(project, data_root)
+    refreshed = storage.load_project(project["project_id"], data_root) or project
+    storage.update_latest_validation(refreshed, validation, data_root)
+    return storage.load_project(project["project_id"], data_root) or refreshed
+
+
+def _api_run_response(project_id: str, run_id: str, data_root: Path, status_code: int = 200) -> JSONResponse:
+    return JSONResponse({
+        "run": _decorated_run_or_404(project_id, run_id, data_root),
+    }, status_code=status_code)
+
+
 def create_app(data_root: Path | None = None) -> FastAPI:
     config.load_runtime_env()
     app = FastAPI(title="PaperOrchestra Control Room")
@@ -495,6 +635,61 @@ def create_app(data_root: Path | None = None) -> FastAPI:
             source_directory=str(form.get("source_directory", "")),
         )
         return RedirectResponse(f"/projects/{project['project_id']}?step=setup", status_code=303)
+
+    @app.get("/api/projects")
+    async def api_projects() -> JSONResponse:
+        projects = [
+            storage.reconcile_project_runs(project, _data_root(app))
+            for project in storage.list_projects(_data_root(app))
+        ]
+        return JSONResponse({"projects": projects})
+
+    @app.post("/api/projects")
+    async def api_create_project(request: Request) -> JSONResponse:
+        payload = await _json_payload(request)
+        project = storage.create_project(
+            title=_payload_value(payload, "title"),
+            venue=_payload_value(payload, "venue"),
+            description=_payload_value(payload, "description"),
+            workspace_path=_payload_value(payload, "workspace_path") or None,
+            data_root=_data_root(app),
+            source_directory=_payload_value(payload, "source_directory"),
+        )
+        return JSONResponse({"project": storage.reconcile_project_runs(project, _data_root(app))}, status_code=201)
+
+    @app.get("/api/projects/{project_id}")
+    async def api_project(project_id: str) -> JSONResponse:
+        return _json_project_response(_project_or_404(project_id, _data_root(app)), _data_root(app))
+
+    @app.post("/api/projects/{project_id}/setup")
+    async def api_save_setup(project_id: str, request: Request) -> JSONResponse:
+        project = _project_or_404(project_id, _data_root(app))
+        payload = await _json_payload(request)
+        saved = _save_setup_payload(project, payload, _data_root(app))
+        return _json_project_response(saved, _data_root(app))
+
+    @app.post("/api/projects/{project_id}/inputs/{input_name}")
+    async def api_save_input(project_id: str, input_name: str, request: Request) -> JSONResponse:
+        if input_name not in INPUT_PANELS:
+            raise HTTPException(status_code=404, detail="Unknown input.")
+        project = _project_or_404(project_id, _data_root(app))
+        payload = await _json_payload(request)
+        saved = _save_input_payload(project, input_name, payload, _data_root(app))
+        validation = saved.get("latest_validation") or {}
+        return JSONResponse({
+            "project": storage.reconcile_project_runs(saved, _data_root(app)),
+            "validation": validation,
+            "input": validation.get("inputs", {}).get(input_name, {}),
+        })
+
+    @app.get("/api/projects/{project_id}/artifacts")
+    async def api_project_artifacts(project_id: str) -> JSONResponse:
+        project = _project_or_404(project_id, _data_root(app))
+        latest_run = project.get("latest_run")
+        return JSONResponse({
+            "workspace_artifacts": _workspace_outputs(project),
+            "run_artifacts": _run_artifacts(latest_run),
+        })
 
     @app.get("/projects/{project_id}", response_class=HTMLResponse)
     async def project_page(project_id: str, request: Request, step: str = "setup", panel: str = "") -> HTMLResponse:
@@ -787,20 +982,60 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         run_id = orchestrator.start_run(project_id, _data_root(app))
         return RedirectResponse(f"/projects/{project_id}?step=run&run_id={run_id}", status_code=303)
 
+    @app.post("/api/projects/{project_id}/runs/start")
+    async def api_start_run(project_id: str) -> JSONResponse:
+        project = _project_or_404(project_id, _data_root(app))
+        validation = storage.validate_project_inputs(project, _data_root(app))
+        refreshed = storage.load_project(project_id, _data_root(app)) or project
+        storage.update_latest_validation(refreshed, validation, _data_root(app))
+        if validation.get("has_blockers"):
+            return JSONResponse({
+                "status": "blocked",
+                "error": "inputs_blocked",
+                "detail": "Project inputs have blockers.",
+                "validation": validation,
+            }, status_code=409)
+        run_id = orchestrator.start_run(project_id, _data_root(app))
+        return _api_run_response(project_id, run_id, _data_root(app), status_code=202)
+
     @app.post("/projects/{project_id}/runs/{run_id}/retry/{stage_name}")
     async def retry_stage(project_id: str, run_id: str, stage_name: str) -> RedirectResponse:
         orchestrator.retry_stage(project_id, run_id, stage_name, _data_root(app))
         return RedirectResponse(f"/projects/{project_id}?step=run&run_id={run_id}", status_code=303)
+
+    @app.post("/api/projects/{project_id}/runs/{run_id}/retry/{stage_name}")
+    async def api_retry_stage(project_id: str, run_id: str, stage_name: str) -> JSONResponse:
+        try:
+            orchestrator.retry_stage(project_id, run_id, stage_name, _data_root(app))
+        except RuntimeError as error:
+            return JSONResponse({"error": "retry_failed", "message": str(error)}, status_code=409)
+        return _api_run_response(project_id, run_id, _data_root(app), status_code=202)
 
     @app.post("/projects/{project_id}/runs/{run_id}/resume")
     async def resume_run(project_id: str, run_id: str) -> RedirectResponse:
         orchestrator.resume_run(project_id, run_id, _data_root(app))
         return RedirectResponse(f"/projects/{project_id}?step=run&run_id={run_id}", status_code=303)
 
+    @app.post("/api/projects/{project_id}/runs/{run_id}/resume")
+    async def api_resume_run(project_id: str, run_id: str) -> JSONResponse:
+        try:
+            orchestrator.resume_run(project_id, run_id, _data_root(app))
+        except RuntimeError as error:
+            return JSONResponse({"error": "resume_failed", "message": str(error)}, status_code=409)
+        return _api_run_response(project_id, run_id, _data_root(app))
+
     @app.post("/projects/{project_id}/runs/{run_id}/cancel")
     async def cancel_run(project_id: str, run_id: str) -> RedirectResponse:
         orchestrator.cancel_run(project_id, run_id, _data_root(app))
         return RedirectResponse(f"/projects/{project_id}?step=run&run_id={run_id}", status_code=303)
+
+    @app.post("/api/projects/{project_id}/runs/{run_id}/cancel")
+    async def api_cancel_run(project_id: str, run_id: str) -> JSONResponse:
+        try:
+            orchestrator.cancel_run(project_id, run_id, _data_root(app))
+        except RuntimeError as error:
+            return JSONResponse({"error": "cancel_failed", "message": str(error)}, status_code=409)
+        return _api_run_response(project_id, run_id, _data_root(app))
 
     @app.get("/api/projects/{project_id}/runs/{run_id}")
     async def run_events(project_id: str, run_id: str) -> JSONResponse:
