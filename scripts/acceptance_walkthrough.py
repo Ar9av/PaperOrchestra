@@ -88,10 +88,21 @@ def seed_acceptance_s2_cache(db_path: Path) -> Path:
         for query in (
             "Attention Is All You Need",
             "Longformer: The Long-Document Transformer",
+            "Big Bird: Transformers for Longer Sequences",
+            "Reformer: The Efficient Transformer",
+            "Rethinking Attention with Performers",
+            "Categorical Reparameterization with Gumbel-Softmax",
             "Transformer quadratic attention scaling in long-context tasks",
             "Sparse attention baselines for long-document question answering and summarization before 2024-10-01",
             "Differentiable top-k or routing mechanisms for learned sparse attention before 2024-10-01",
             "Benchmarks and evaluation papers covering NaturalQuestions-Long, NarrativeQA, and GovReport-Summ before 2024-10-01",
+            "BigBird Longformer Reformer Performer long-context sparse attention limitations",
+            "fixed sparse attention long document question answering summarization limitations",
+            "Identify the canonical fixed-pattern sparse attention methods used as long-context baselines and summarize their quality-efficiency tradeoffs.",
+            "content-adaptive sparse attention learned routing transformers",
+            "adaptive token selection self-attention learned top-k routing",
+            "Find prior work on learned attention routing or content-adaptive sparsity and position ATK-Attention within that line.",
+            "Gumbel-Softmax differentiable top-k attention training",
         ):
             connection.execute(
                 """
@@ -161,21 +172,104 @@ def launch_app(host: str, port: int, data_root: Path, env: dict[str, str]) -> di
     return launched
 
 
+def playwright_install_hint() -> str:
+    python = str(storage.repo_python_executable(sys.executable))
+    return (
+        f"Run `{python} -m pip install -r requirements.txt` and "
+        f"`{python} -m playwright install chromium`, then retry."
+    )
+
+
+def playwright_chromium_missing(exc: Exception) -> bool:
+    message = str(exc)
+    return "Executable doesn't exist" in message
+
+
 def require_playwright():
     try:
         module = importlib.import_module("playwright.sync_api")
     except ModuleNotFoundError as exc:
-        python = str(storage.repo_python_executable(sys.executable))
         raise RuntimeError(
             "Playwright browser automation is not installed in the repo virtualenv. "
-            f"Run `{python} -m pip install playwright` and `{python} -m playwright install chromium`, then retry."
+            + playwright_install_hint()
         ) from exc
     return module.sync_playwright
+
+
+def verify_playwright_ready() -> None:
+    sync_playwright = require_playwright()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+    except Exception as exc:
+        if playwright_chromium_missing(exc):
+            raise RuntimeError(
+                "Playwright Chromium is not installed in the repo virtualenv. "
+                + playwright_install_hint()
+            ) from exc
+        raise RuntimeError(f"Playwright Chromium preflight failed before starting the app: {exc}") from exc
+
+
+def validate_examples_root(examples_root: Path) -> None:
+    required = [
+        examples_root / "idea.md",
+        examples_root / "experimental_log.md",
+        examples_root / "template.tex",
+        examples_root / "conference_guidelines.md",
+    ]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        raise RuntimeError(
+            "Acceptance examples root is incomplete. Missing: "
+            + ", ".join(missing)
+            + ". Pass --examples-root with the directory containing the minimal input files."
+        )
+
+
+def configure_acceptance_environment(env: dict[str, str], data_root: Path, local_only: bool) -> None:
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PAPERORCHESTRA_ACCEPTANCE_FIXTURES"] = "1"
+    env["PAPERORCHESTRA_ACCEPTANCE_DISABLE_FIXTURES"] = "outline"
+    env.setdefault("PAPERORCHESTRA_CODEX_OUTPUT_TIMEOUT_SECONDS", "8")
+    env.setdefault("PAPERORCHESTRA_CODEX_TIMEOUT_SECONDS", "8")
+    env["PAPERORCHESTRA_S2_CACHE_DB"] = str(seed_acceptance_s2_cache(data_root / "shared-cache" / "semantic_scholar.sqlite3"))
+    if local_only:
+        env["PAPERORCHESTRA_CHROME_ENABLED"] = "0"
+        env["PAPERORCHESTRA_ATLAS_ENABLED"] = "0"
+        env["PAPERORCHESTRA_ATLAS_FALLBACK_ENABLED"] = "0"
+        env["PAPERORCHESTRA_LOCAL_FALLBACK_ENABLED"] = "1"
+        env["PAPERORCHESTRA_BROWSER_PRIMARY"] = "local"
+        env["PAPERORCHESTRA_BROWSER_FALLBACK_ORDER"] = "local"
+        env["PAPERORCHESTRA_ACCEPTANCE_STRICT_S2_CACHE"] = "1"
+        env["CODEX_BIN"] = shutil.which("false") or "/usr/bin/false"
 
 
 def save_browser_screenshot(page, output_root: Path, name: str) -> None:
     storage.ensure_dir(output_root)
     page.screenshot(path=str(output_root / name), full_page=True)
+
+
+def browser_page_context(page) -> str:
+    if page is None:
+        return "No browser page was available."
+    try:
+        current_url = page.url
+    except Exception:
+        current_url = "unknown"
+    body_excerpt = ""
+    try:
+        body_text = page.locator("body").inner_text(timeout=1000)
+        body_excerpt = re.sub(r"\s+", " ", body_text).strip()[:500]
+    except Exception:
+        pass
+    if body_excerpt:
+        return f"Current URL: {current_url}. Body excerpt: {body_excerpt}"
+    return f"Current URL: {current_url}."
+
+
+def browser_step_error(prefix: str, step_name: str, page, exc: Exception) -> RuntimeError:
+    return RuntimeError(f"{prefix} failed during `{step_name}`. {browser_page_context(page)} Original error: {exc}")
 
 
 def bootstrap_via_browser(base_url: str, output_root: Path, examples_root: Path) -> dict[str, object]:
@@ -184,11 +278,14 @@ def bootstrap_via_browser(base_url: str, output_root: Path, examples_root: Path)
     with sync_playwright() as playwright:
         browser = None
         page = None
+        step_name = "launch headless Chromium"
         try:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
+            step_name = "open dashboard"
             page.goto(base_url, wait_until="domcontentloaded")
             save_browser_screenshot(page, output_root, "01-dashboard.png")
+            step_name = "create project"
             page.locator('input[name="title"]').fill(title)
             page.locator('input[name="venue"]').fill("ToyConf Acceptance")
             page.locator('textarea[name="description"]').fill("Acceptance walkthrough project")
@@ -200,6 +297,7 @@ def bootstrap_via_browser(base_url: str, output_root: Path, examples_root: Path)
                 raise RuntimeError("Could not determine project id from setup URL.")
             project_id = project_match.group(1)
 
+            step_name = "save setup"
             save_browser_screenshot(page, output_root, "02-setup.png")
             page.locator('input[name="title"]').fill(title)
             page.locator('input[name="venue"]').fill("ToyConf Acceptance")
@@ -207,37 +305,44 @@ def bootstrap_via_browser(base_url: str, output_root: Path, examples_root: Path)
             page.locator('form[action$="/save/setup"] button').click()
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=inputs&panel=idea"))
 
+            step_name = "upload idea input"
             save_browser_screenshot(page, output_root, "03-inputs-idea.png")
             page.locator('input[name="idea_upload"]').set_input_files(str(examples_root / "idea.md"))
             page.locator('form[action$="/save/input/idea"] button').click()
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=inputs&panel=idea"))
 
+            step_name = "upload experimental input"
             page.goto(f"{base_url}/projects/{project_id}?step=inputs&panel=experimental", wait_until="domcontentloaded")
             save_browser_screenshot(page, output_root, "04-inputs-experimental.png")
             page.locator('input[name="experimental_upload"]').set_input_files(str(examples_root / "experimental_log.md"))
             page.locator('form[action$="/save/input/experimental"] button').click()
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=inputs&panel=experimental"))
 
+            step_name = "upload template input"
             page.goto(f"{base_url}/projects/{project_id}?step=inputs&panel=template", wait_until="domcontentloaded")
             save_browser_screenshot(page, output_root, "05-inputs-template.png")
             page.locator('input[name="template_upload"]').set_input_files(str(examples_root / "template.tex"))
             page.locator('form[action$="/save/input/template"] button').click()
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=inputs&panel=template"))
 
+            step_name = "upload guidelines input"
             page.goto(f"{base_url}/projects/{project_id}?step=inputs&panel=guidelines", wait_until="domcontentloaded")
             save_browser_screenshot(page, output_root, "06-inputs-guidelines.png")
             page.locator('input[name="guidelines_upload"]').set_input_files(str(examples_root / "conference_guidelines.md"))
             page.locator('form[action$="/save/input/guidelines"] button').click()
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=inputs&panel=guidelines"))
 
+            step_name = "open review"
             page.goto(f"{base_url}/projects/{project_id}?step=review", wait_until="domcontentloaded")
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=review"))
 
+            step_name = "start autonomous run"
             save_browser_screenshot(page, output_root, "07-review.png")
             page.get_by_role("button", name="Start autonomous run").click()
             page.wait_for_url(re.compile(rf"/projects/{re.escape(project_id)}\?step=run"))
             save_browser_screenshot(page, output_root, "08-run-started.png")
 
+            step_name = "read run id"
             match = re.search(r"[?&]run_id=([^&]+)", page.url)
             run_id = urllib.parse.unquote(match.group(1)) if match else ""
             if not run_id:
@@ -259,13 +364,12 @@ def bootstrap_via_browser(base_url: str, output_root: Path, examples_root: Path)
                     save_browser_screenshot(page, output_root, "bootstrap-failure.png")
                 except Exception:
                     pass
-            if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
-                python = str(storage.repo_python_executable(sys.executable))
+            if playwright_chromium_missing(exc):
                 raise RuntimeError(
                     "Playwright Chromium is not installed in the repo virtualenv. "
-                    f"Run `{python} -m playwright install chromium` and retry."
+                    + playwright_install_hint()
                 ) from exc
-            raise
+            raise browser_step_error("Browser bootstrap", step_name, page, exc) from exc
         finally:
             if browser is not None:
                 browser.close()
@@ -276,13 +380,16 @@ def retry_stage_via_browser(base_url: str, output_root: Path, project_id: str, r
     with sync_playwright() as playwright:
         browser = None
         page = None
+        step_name = "launch headless Chromium"
         try:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
+            step_name = f"open run dashboard for {stage_name} retry"
             page.goto(dashboard_url(base_url, project_id, run_id), wait_until="domcontentloaded")
             save_browser_screenshot(page, output_root, f"retry-{stage_name}-before.png")
             action = f"/projects/{project_id}/runs/{run_id}/retry/{stage_name}"
             action_url = urllib.parse.urljoin(base_url, action)
+            step_name = f"submit {stage_name} retry"
             with page.expect_response(lambda response: response.request.method == "POST" and response.url == action_url):
                 page.locator(f'form[action="{action}"] button').click()
             page.wait_for_load_state("networkidle")
@@ -294,13 +401,12 @@ def retry_stage_via_browser(base_url: str, output_root: Path, project_id: str, r
                     save_browser_screenshot(page, output_root, f"retry-{stage_name}-failure.png")
                 except Exception:
                     pass
-            if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
-                python = str(storage.repo_python_executable(sys.executable))
+            if playwright_chromium_missing(exc):
                 raise RuntimeError(
                     "Playwright Chromium is not installed in the repo virtualenv. "
-                    f"Run `{python} -m playwright install chromium` and retry."
+                    + playwright_install_hint()
                 ) from exc
-            raise
+            raise browser_step_error("Browser retry", step_name, page, exc) from exc
         finally:
             if browser is not None:
                 browser.close()
@@ -400,11 +506,14 @@ def resolve_final_pdf_href(base_url: str, project_id: str, run_id: str, output_r
     with sync_playwright() as playwright:
         browser = None
         page = None
+        step_name = "launch headless Chromium"
         try:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
+            step_name = "open run dashboard for final PDF"
             page.goto(dashboard_url(base_url, project_id, run_id), wait_until="domcontentloaded")
             save_browser_screenshot(page, output_root, "final-pdf-link.png")
+            step_name = "read final PDF link"
             href = page.get_by_role("link", name="Open final PDF").first.get_attribute("href") or ""
             if not href:
                 raise RuntimeError("Could not find the final PDF link on the run dashboard.")
@@ -417,13 +526,12 @@ def resolve_final_pdf_href(base_url: str, project_id: str, run_id: str, output_r
                     save_browser_screenshot(page, output_root, "final-pdf-link-failure.png")
                 except Exception:
                     pass
-            if "Executable doesn't exist" in str(exc) or "playwright install" in str(exc):
-                python = str(storage.repo_python_executable(sys.executable))
+            if playwright_chromium_missing(exc):
                 raise RuntimeError(
                     "Playwright Chromium is not installed in the repo virtualenv. "
-                    f"Run `{python} -m playwright install chromium` and retry."
+                    + playwright_install_hint()
                 ) from exc
-            raise
+            raise browser_step_error("Final PDF lookup", step_name, page, exc) from exc
         finally:
             if browser is not None:
                 browser.close()
@@ -470,6 +578,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--examples-root", default=str(REPO_ROOT / "examples" / "minimal" / "inputs"))
     parser.add_argument("--forced-failure-stage", default="compile")
     parser.add_argument("--keep-artifacts-on-failure", action="store_true")
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Disable Chrome/Atlas and force Codex-backed stages through deterministic local fallbacks.",
+    )
     args = parser.parse_args(argv)
 
     host = args.host
@@ -481,12 +594,7 @@ def main(argv: list[str] | None = None) -> int:
     storage.ensure_dir(output_root)
 
     env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PAPERORCHESTRA_ACCEPTANCE_FIXTURES"] = "1"
-    env["PAPERORCHESTRA_ACCEPTANCE_DISABLE_FIXTURES"] = "outline"
-    env.setdefault("PAPERORCHESTRA_CODEX_OUTPUT_TIMEOUT_SECONDS", "8")
-    env.setdefault("PAPERORCHESTRA_CODEX_TIMEOUT_SECONDS", "8")
-    env["PAPERORCHESTRA_S2_CACHE_DB"] = str(seed_acceptance_s2_cache(data_root / "shared-cache" / "semantic_scholar.sqlite3"))
+    configure_acceptance_environment(env, data_root, local_only=bool(args.local_only))
     forced_failure_stage = str(args.forced_failure_stage or "").strip().lower()
     if forced_failure_stage and forced_failure_stage not in {"none", "off", "false"}:
         env["PAPERORCHESTRA_ACCEPTANCE_MODE"] = "1"
@@ -506,8 +614,11 @@ def main(argv: list[str] | None = None) -> int:
         "data_root": str(data_root),
         "output_root": str(output_root),
         "forced_failure_stage": forced_failure_stage or None,
+        "local_only": bool(args.local_only),
     }
     try:
+        validate_examples_root(examples_root)
+        verify_playwright_ready()
         launched = launch_app(host=host, port=port, data_root=data_root, env=env)
         base_url = str(launched["base_url"])
         bootstrap = bootstrap_via_browser(base_url, output_root / "browser", examples_root)

@@ -90,6 +90,10 @@ def _shared_cache_db() -> str:
     return os.environ.get("PAPERORCHESTRA_S2_CACHE_DB", "").strip()
 
 
+def _env_flag(key: str) -> bool:
+    return str(os.environ.get(key, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _load_shared_cache(query: str) -> dict | None:
     db_path = _shared_cache_db()
     if not db_path or s2_shared is None:
@@ -162,6 +166,12 @@ def search(query: str, limit: int, fields: str, retries: int = 3) -> dict:
     cached = _load_shared_cache(query)
     if cached is not None:
         return cached
+    if _env_flag("PAPERORCHESTRA_ACCEPTANCE_STRICT_S2_CACHE"):
+        print(
+            f"ERROR: strict acceptance Semantic Scholar cache miss for query: {query}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     _wait_for_shared_rate_limit()
 
     for attempt in range(1, retries + 1):

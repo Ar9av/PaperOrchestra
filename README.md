@@ -377,9 +377,18 @@ Useful flags:
 ```bash
 .venv/bin/python scripts/acceptance_walkthrough.py --forced-failure-stage compile
 .venv/bin/python scripts/acceptance_walkthrough.py --forced-failure-stage none
+.venv/bin/python scripts/acceptance_walkthrough.py --local-only
 .venv/bin/python scripts/acceptance_walkthrough.py --output-root /tmp/paper-orchestra-acceptance
 .venv/bin/python scripts/acceptance_walkthrough.py --keep-artifacts-on-failure
 ```
+
+Use `--local-only` for the closeout-safe fixture path. It disables Chrome and
+Atlas, keeps acceptance fixtures enabled, seeds the local Semantic Scholar
+cache in strict mode without OpenAlex fallback, and forces Codex-backed stages
+through deterministic local fallbacks.
+The walkthrough still uses Playwright's bundled headless Chromium to exercise
+the local FastAPI UI; it does not launch Chrome DevTools MCP or a signed-in
+Chrome session.
 
 The harness writes a non-tracked summary plus copied run artifacts under
 `output/acceptance/` by default. Browser automation uses Python Playwright in

@@ -60,8 +60,64 @@ class AcceptanceWalkthroughTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as raised:
                 self.script.require_playwright()
 
-        self.assertIn("python -m pip install playwright", str(raised.exception))
+        self.assertIn("python -m pip install -r requirements.txt", str(raised.exception))
         self.assertIn("python -m playwright install chromium", str(raised.exception))
+
+    def test_verify_playwright_ready_reports_missing_chromium(self) -> None:
+        class FakeChromium:
+            def launch(self, **_: object) -> object:
+                raise RuntimeError("Executable doesn't exist at /tmp/chromium")
+
+        class FakePlaywright:
+            chromium = FakeChromium()
+
+        class FakeSyncPlaywright:
+            def __enter__(self) -> FakePlaywright:
+                return FakePlaywright()
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+        with mock.patch.object(self.script, "require_playwright", return_value=lambda: FakeSyncPlaywright()):
+            with self.assertRaises(RuntimeError) as raised:
+                self.script.verify_playwright_ready()
+
+        self.assertIn("Playwright Chromium is not installed", str(raised.exception))
+        self.assertIn("python -m playwright install chromium", str(raised.exception))
+
+    def test_verify_playwright_ready_reports_missing_python_package(self) -> None:
+        with mock.patch.object(self.script.importlib, "import_module", side_effect=ModuleNotFoundError("No module named 'playwright'")):
+            with self.assertRaises(RuntimeError) as raised:
+                self.script.verify_playwright_ready()
+
+        self.assertIn("Playwright browser automation is not installed", str(raised.exception))
+        self.assertNotIn("Playwright Chromium is not installed", str(raised.exception))
+
+    def test_configure_acceptance_environment_local_only_disables_external_surfaces(self) -> None:
+        data_root = self.root / "gui-data"
+        env = {"CODEX_BIN": "codex"}
+
+        self.script.configure_acceptance_environment(env, data_root, local_only=True)
+
+        self.assertEqual(env["PAPERORCHESTRA_ACCEPTANCE_FIXTURES"], "1")
+        self.assertEqual(env["PAPERORCHESTRA_CHROME_ENABLED"], "0")
+        self.assertEqual(env["PAPERORCHESTRA_ATLAS_ENABLED"], "0")
+        self.assertEqual(env["PAPERORCHESTRA_ATLAS_FALLBACK_ENABLED"], "0")
+        self.assertEqual(env["PAPERORCHESTRA_BROWSER_PRIMARY"], "local")
+        self.assertEqual(env["PAPERORCHESTRA_BROWSER_FALLBACK_ORDER"], "local")
+        self.assertEqual(env["PAPERORCHESTRA_ACCEPTANCE_STRICT_S2_CACHE"], "1")
+        self.assertNotEqual(env["CODEX_BIN"], "codex")
+        self.assertTrue(Path(env["PAPERORCHESTRA_S2_CACHE_DB"]).exists())
+
+    def test_validate_examples_root_reports_missing_inputs(self) -> None:
+        examples_root = self.root / "missing-examples"
+        examples_root.mkdir()
+
+        with self.assertRaises(RuntimeError) as raised:
+            self.script.validate_examples_root(examples_root)
+
+        self.assertIn("Acceptance examples root is incomplete", str(raised.exception))
+        self.assertIn("idea.md", str(raised.exception))
 
     def test_write_summary_and_capture_run_artifacts(self) -> None:
         data_root = self.root / "gui-data"
@@ -101,9 +157,37 @@ class AcceptanceWalkthroughTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("Run the PaperOrchestra acceptance walkthrough", completed.stdout)
 
+    def test_main_preflights_playwright_before_launch_app(self) -> None:
+        examples_root = self.root / "examples"
+        examples_root.mkdir()
+        for name in ("idea.md", "experimental_log.md", "template.tex", "conference_guidelines.md"):
+            (examples_root / name).write_text("fixture\n", encoding="utf-8")
+        output_root = self.root / "output"
+
+        with (
+            mock.patch.object(self.script, "verify_playwright_ready", side_effect=RuntimeError("missing chromium")),
+            mock.patch.object(self.script, "launch_app") as launch_app,
+        ):
+            exit_code = self.script.main([
+                "--examples-root",
+                str(examples_root),
+                "--output-root",
+                str(output_root),
+            ])
+
+        self.assertEqual(exit_code, 1)
+        launch_app.assert_not_called()
+        summary = json.loads((output_root / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["status"], "failed")
+        self.assertIn("missing chromium", summary["error"])
+
     def test_script_invocation_succeeds_end_to_end(self) -> None:
         if importlib.util.find_spec("playwright.sync_api") is None:
             self.skipTest("playwright is not installed in the repo virtualenv")
+        try:
+            self.script.verify_playwright_ready()
+        except RuntimeError as exc:
+            self.skipTest(str(exc))
 
         output_root = self.root / "acceptance-output"
         completed = self.script.subprocess.run(
@@ -112,6 +196,7 @@ class AcceptanceWalkthroughTests(unittest.TestCase):
                 "scripts/acceptance_walkthrough.py",
                 "--output-root",
                 str(output_root),
+                "--local-only",
             ],
             cwd=str(storage.REPO_ROOT),
             capture_output=True,

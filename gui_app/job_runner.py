@@ -500,6 +500,10 @@ def _acceptance_fixtures_enabled_for_stage(env: dict[str, str], stage_name: str)
     return _acceptance_fixtures_enabled(env) and stage_name not in _acceptance_fixture_disabled_stages(env)
 
 
+def _acceptance_strict_s2_cache_enabled(env: dict[str, str]) -> bool:
+    return str(env.get("PAPERORCHESTRA_ACCEPTANCE_STRICT_S2_CACHE", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _acceptance_failpoint_marker(project_id: str, run_id: str, data_root: Path, stage_name: str) -> Path:
     return storage.run_dir(project_id, run_id, data_root) / "acceptance" / f"failpoint-{stage_name}.consumed"
 
@@ -1389,6 +1393,9 @@ def run_semantic_scholar_query(query: str, env: dict[str, str], log_path: Path) 
         append_log(log_path, completed.stdout.strip())
     if completed.stderr.strip():
         append_log(log_path, completed.stderr.strip())
+    if completed.returncode != 0 and _acceptance_strict_s2_cache_enabled(env):
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"query: {query}"
+        raise RuntimeError(f"Strict Semantic Scholar cache miss or failure: {detail}")
     if not completed.stdout.strip():
         return []
     try:
@@ -1527,11 +1534,15 @@ def build_verified_citation_pool(
     candidates: list[dict[str, object]] = []
     seen_titles: set[str] = set()
     query_plan = atlas_literature_queries(atlas_structured_output_path) + literature_queries_from_outline(outline_payload)
+    strict_s2_cache = _acceptance_strict_s2_cache_enabled(env)
     for label, query in query_plan:
         accepted_for_query = 0
         s2_results = run_semantic_scholar_query(query, env, log_path)
         if s2_results:
             query_results = s2_results
+        elif strict_s2_cache:
+            append_log(log_path, f"Strict Semantic Scholar cache mode skipped OpenAlex fallback for query: {query}")
+            query_results = []
         else:
             append_log(log_path, f"Falling back to OpenAlex for query: {query}")
             query_results = [normalize_openalex_paper(item, label) for item in run_openalex_query(query, log_path, env)]
@@ -1562,6 +1573,8 @@ def build_verified_citation_pool(
             break
 
     if not candidates:
+        if strict_s2_cache:
+            raise RuntimeError("Literature discovery returned no usable papers from the strict local Semantic Scholar cache.")
         raise RuntimeError("Literature discovery returned no usable papers.")
 
     storage.atomic_write_json(raw_pool_path, {"papers": candidates})
