@@ -367,6 +367,59 @@ class WebAppTests(unittest.TestCase):
             raw_markdown,
         )
 
+    def test_api_save_input_accepts_template_upload(self) -> None:
+        project = storage.create_project("Native Upload Paper", "", "", data_root=self.data_root)
+        template_text = "\\documentclass{article}\n\\begin{document}\nUploaded template\n\\end{document}\n"
+
+        response = self.client.post(
+            f"/api/projects/{project['project_id']}/inputs/template",
+            data={"template_text": "will be replaced by upload"},
+            files={"template_upload": ("template.tex", template_text.encode("utf-8"), "text/x-tex")},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("validation", payload)
+        saved = storage.load_project(project["project_id"], self.data_root)
+        self.assertEqual(saved["template"]["text"], template_text)
+        self.assertEqual(saved["template"]["source_filename"], "template.tex")
+        self.assertTrue(Path(saved["uploads"]["template_tex"]).exists())
+        self.assertEqual(
+            Path(saved["workspace_path"], "inputs", "template.tex").read_text(encoding="utf-8"),
+            template_text,
+        )
+
+    def test_api_save_input_accepts_multiple_figure_uploads_and_remove(self) -> None:
+        project = storage.create_project("Native Figure Upload Paper", "", "", data_root=self.data_root)
+
+        response = self.client.post(
+            f"/api/projects/{project['project_id']}/inputs/figures",
+            files=[
+                ("figure_uploads", ("figure-a.png", b"png-a", "image/png")),
+                ("figure_uploads", ("figure-b.png", b"png-b", "image/png")),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        saved = storage.load_project(project["project_id"], self.data_root)
+        figures = saved["uploads"]["figures"]
+        self.assertEqual(len(figures), 2)
+        self.assertTrue(all(Path(path).exists() for path in figures))
+        workspace_figures = Path(saved["workspace_path"], "inputs", "figures")
+        self.assertTrue((workspace_figures / "figure-a.png").exists())
+        self.assertTrue((workspace_figures / "figure-b.png").exists())
+
+        remove_response = self.client.post(
+            f"/api/projects/{project['project_id']}/inputs/figures/remove",
+            json={"path": figures[0]},
+        )
+
+        self.assertEqual(remove_response.status_code, 200)
+        saved_after_remove = storage.load_project(project["project_id"], self.data_root)
+        self.assertEqual(saved_after_remove["uploads"]["figures"], [figures[1]])
+        self.assertFalse((workspace_figures / "figure-a.png").exists())
+        self.assertTrue((workspace_figures / "figure-b.png").exists())
+
     def test_api_start_run_reports_validation_blockers_as_conflict(self) -> None:
         project = storage.create_project("Blocked API Start", "", "", data_root=self.data_root)
 

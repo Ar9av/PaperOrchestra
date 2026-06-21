@@ -63,6 +63,7 @@ final class LauncherViewModel: ObservableObject {
         settings: LauncherSettings? = nil,
         workspaceProvider: LauncherWorkspaceProviding = LauncherWorkspaceRepository(),
         notificationScheduler: LauncherNotificationScheduling = UserNotificationScheduler(),
+        inputActionClient: LauncherInputActionPerforming = LauncherInputActionClient(),
         projectActionClient: LauncherProjectActionPerforming = LauncherProjectActionClient(),
         runActionClient: LauncherRunActionPerforming = LauncherRunActionClient(),
         backendSupervisorFactory: ((LauncherSettings) -> BackendEnsuring)? = nil
@@ -86,6 +87,7 @@ final class LauncherViewModel: ObservableObject {
             settingsStore: resolvedSettingsStore,
             workspaceProvider: workspaceProvider,
             notificationCoordinator: LauncherNotificationCoordinator(scheduler: notificationScheduler),
+            inputActionClient: inputActionClient,
             runActionClient: runActionClient,
             projectActionClient: projectActionClient
         )
@@ -362,13 +364,16 @@ final class LauncherViewModel: ObservableObject {
 
     func refreshSelectedProjectInputs() async {
         await performInputOperation(.init(kind: .refresh, inputName: currentInputOperationName)) { [self] in
-            _ = try await self.workspaceCoordinator.refreshSelectedProjectInputs()
+            _ = try await self.workspaceCoordinator.refreshSelectedProjectInputs(backendURL: inputActionBackendURL())
         }
     }
 
     func validateSelectedInput(_ inputName: LauncherInputName) async {
         await performInputOperation(.init(kind: .validate, inputName: inputName)) { [self] in
-            _ = try await self.workspaceCoordinator.validateSelectedProjectInput(inputName: inputName)
+            _ = try await self.workspaceCoordinator.validateSelectedProjectInput(
+                inputName: inputName,
+                backendURL: inputActionBackendURL()
+            )
         }
     }
 
@@ -376,14 +381,18 @@ final class LauncherViewModel: ObservableObject {
         await performInputOperation(.init(kind: .save, inputName: inputName)) { [self] in
             try await self.workspaceCoordinator.saveSelectedProjectInput(
                 inputName: inputName,
-                request: request
+                request: request,
+                backendURL: inputActionBackendURL()
             )
         }
     }
 
     func removeFigure(at path: String) async {
         await performInputOperation(.init(kind: .removeFigure, inputName: .figures)) { [self] in
-            try await self.workspaceCoordinator.removeSelectedFigure(figurePath: path)
+            try await self.workspaceCoordinator.removeSelectedFigure(
+                figurePath: path,
+                backendURL: inputActionBackendURL()
+            )
         }
     }
 
@@ -472,6 +481,10 @@ final class LauncherViewModel: ObservableObject {
     }
 
     private func runActionBackendURL() -> URL? {
+        snapshot.integrations.backendReachable ? (backendURL ?? settings.backendURL) : nil
+    }
+
+    private func inputActionBackendURL() -> URL? {
         snapshot.integrations.backendReachable ? (backendURL ?? settings.backendURL) : nil
     }
 

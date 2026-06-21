@@ -480,6 +480,95 @@ def _payload_value(payload: dict[str, Any], key: str, default: str = "") -> str:
     return str(raw)
 
 
+async def _input_payload(request: Request) -> tuple[dict[str, Any], dict[str, list[tuple[str, bytes]]]]:
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" not in content_type:
+        return await _json_payload(request), {}
+
+    form = await request.form()
+    payload: dict[str, Any] = {"fields": {}}
+    uploads: dict[str, list[tuple[str, bytes]]] = {}
+    fields = payload["fields"]
+    for key, value in form.multi_items():
+        parsed = await _read_upload(value)
+        if parsed:
+            uploads.setdefault(key, []).append(parsed)
+            continue
+        fields.setdefault(key, []).append(str(value))
+    return payload, uploads
+
+
+def _first_upload(
+    uploads: dict[str, list[tuple[str, bytes]]],
+    field_name: str,
+) -> tuple[str, bytes] | None:
+    items = uploads.get(field_name, [])
+    return items[0] if items else None
+
+
+def _save_input_uploads(
+    project: dict[str, Any],
+    input_name: str,
+    uploads: dict[str, list[tuple[str, bytes]]],
+    data_root: Path,
+) -> None:
+    project_id = str(project["project_id"])
+
+    if input_name == "idea":
+        upload = _first_upload(uploads, "idea_upload")
+        if upload:
+            _, content = upload
+            raw_markdown = content.decode("utf-8", errors="replace")
+            idea = project.get("idea", {})
+            idea.update(storage.parse_idea_markdown(raw_markdown))
+            idea["raw_markdown"] = raw_markdown
+            project["idea"] = idea
+
+    elif input_name == "experimental":
+        upload = _first_upload(uploads, "experimental_upload")
+        if upload:
+            filename, content = upload
+            experimental = project.get("experimental", {})
+            experimental["log_text"] = content.decode("utf-8", errors="replace")
+            experimental["source_filename"] = filename
+            experimental.update(storage.parse_experimental_log(experimental["log_text"]))
+            project["experimental"] = experimental
+
+    elif input_name == "template":
+        upload = _first_upload(uploads, "template_upload")
+        if upload:
+            filename, content = upload
+            template = project.get("template", {})
+            project.setdefault("uploads", {})
+            project["uploads"]["template_tex"] = storage.store_uploaded_file(project_id, "template", filename, content, data_root)
+            template["text"] = content.decode("utf-8", errors="replace")
+            template["source_filename"] = filename
+            project["template"] = template
+
+    elif input_name == "guidelines":
+        upload = _first_upload(uploads, "guidelines_upload")
+        if upload:
+            filename, content = upload
+            guidelines = project.get("guidelines", {})
+            stored_path = storage.store_uploaded_file(project_id, "guidelines", filename, content, data_root)
+            guidelines["source_filename"] = filename
+            if filename.lower().endswith(".pdf"):
+                guidelines["guidelines_text"] = guidelines.get("guidelines_text") or f"[PDF uploaded at {stored_path}. Paste a text summary here for the pipeline.]"
+            else:
+                guidelines["guidelines_text"] = content.decode("utf-8", errors="replace")
+                guidelines.update(storage.parse_guidelines_text(guidelines["guidelines_text"]))
+            project["guidelines"] = guidelines
+
+    elif input_name == "figures":
+        uploaded_figures = uploads.get("figure_uploads", [])
+        if uploaded_figures:
+            project.setdefault("uploads", {})
+            current_figures = list(project["uploads"].get("figures", []))
+            for filename, content in uploaded_figures:
+                current_figures.append(storage.store_uploaded_file(project_id, "figures", filename, content, data_root))
+            project["uploads"]["figures"] = current_figures
+
+
 def _json_project_response(project: dict[str, Any], data_root: Path) -> JSONResponse:
     return JSONResponse({
         "project": storage.reconcile_project_runs(project, data_root),
@@ -673,13 +762,38 @@ def create_app(data_root: Path | None = None) -> FastAPI:
         if input_name not in INPUT_PANELS:
             raise HTTPException(status_code=404, detail="Unknown input.")
         project = _project_or_404(project_id, _data_root(app))
-        payload = await _json_payload(request)
+        payload, uploads = await _input_payload(request)
         saved = _save_input_payload(project, input_name, payload, _data_root(app))
+        _save_input_uploads(saved, input_name, uploads, _data_root(app))
+        saved = storage.save_project(saved, _data_root(app))
+        validation = storage.validate_project_inputs(saved, _data_root(app))
+        saved = storage.load_project(project_id, _data_root(app)) or saved
+        storage.update_latest_validation(saved, validation, _data_root(app))
+        saved = storage.load_project(project_id, _data_root(app)) or saved
         validation = saved.get("latest_validation") or {}
         return JSONResponse({
             "project": storage.reconcile_project_runs(saved, _data_root(app)),
             "validation": validation,
             "input": validation.get("inputs", {}).get(input_name, {}),
+        })
+
+    @app.post("/api/projects/{project_id}/inputs/figures/remove")
+    async def api_remove_figure(project_id: str, request: Request) -> JSONResponse:
+        project = _project_or_404(project_id, _data_root(app))
+        payload = await _json_payload(request)
+        remove_path = _payload_value(payload, "path").strip()
+        uploads = project.get("uploads", {})
+        uploads["figures"] = [item for item in uploads.get("figures", []) if str(item) != remove_path]
+        project["uploads"] = uploads
+        storage.save_project(project, _data_root(app))
+        validation = storage.validate_project_inputs(project, _data_root(app))
+        refreshed = storage.load_project(project_id, _data_root(app)) or project
+        storage.update_latest_validation(refreshed, validation, _data_root(app))
+        refreshed = storage.load_project(project_id, _data_root(app)) or refreshed
+        return JSONResponse({
+            "project": storage.reconcile_project_runs(refreshed, _data_root(app)),
+            "validation": refreshed.get("latest_validation") or {},
+            "input": (refreshed.get("latest_validation") or {}).get("inputs", {}).get("figures", {}),
         })
 
     @app.get("/api/projects/{project_id}/artifacts")

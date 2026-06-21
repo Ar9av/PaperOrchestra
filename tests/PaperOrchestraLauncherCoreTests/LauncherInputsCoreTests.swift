@@ -491,7 +491,144 @@ struct LauncherWorkspaceCoordinatorInputTests {
         let recorded = await inputActionClient.savedInputs
         #expect(recorded.count == 1)
         #expect(recorded[0].inputName == .idea)
+        #expect(recorded[0].backendURL == nil)
         #expect(controller.snapshot.selectedProjectInputs?.summary == "After save")
+    }
+
+    @Test
+    func selectedInputActionsForwardBackendURLToInputClient() async throws {
+        let inputs = makeInputs(summary: "Ready", updatedAt: "2026-04-19T00:00:00+00:00")
+        let workspaceProvider = FakeInputWorkspaceProvider(snapshots: [.sample(selectedProjectInputs: inputs)])
+        let inputActionClient = RecordingNativeInputActionClient()
+        let controller = LauncherWorkspaceCoordinator(
+            settings: LauncherSettings.defaultValue(),
+            settingsStore: LauncherSettingsStore(settingsURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            workspaceProvider: workspaceProvider,
+            notificationCoordinator: LauncherNotificationCoordinator(scheduler: FakeInputNotificationScheduler()),
+            inputActionClient: inputActionClient
+        )
+        let backendURL = URL(string: "http://127.0.0.1:8765")!
+
+        _ = try await controller.refreshSelectedProjectInputs(backendURL: backendURL)
+        _ = try await controller.validateSelectedProjectInput(inputName: .idea, backendURL: backendURL)
+        try await controller.saveSelectedProjectInput(
+            inputName: .idea,
+            request: .form(["editor_mode": "raw", "raw_markdown": "Updated"]),
+            backendURL: backendURL
+        )
+        try await controller.removeSelectedFigure(figurePath: "/tmp/figure.png", backendURL: backendURL)
+
+        #expect(await inputActionClient.calls == [
+            "http://127.0.0.1:8765",
+            "http://127.0.0.1:8765",
+            "http://127.0.0.1:8765",
+            "http://127.0.0.1:8765",
+        ])
+    }
+}
+
+struct LauncherInputAPIClientTests {
+    @Test
+    func apiClientCallsInputEndpointsAndEncodesJSONAndMultipart() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [InputAPISuccessURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = LauncherInputAPIClient(session: session)
+        let host = "input-api-\(UUID().uuidString).test"
+        let backendURL = URL(string: "http://\(host):8765")!
+
+        _ = try await client.fetchInputStatus(backendURL: backendURL, projectID: "project-1")
+        _ = try await client.validateInput(backendURL: backendURL, projectID: "project-1", inputName: .idea)
+        try await client.saveInput(
+            backendURL: backendURL,
+            projectID: "project-1",
+            inputName: .idea,
+            request: .form(["editor_mode": "raw", "raw_markdown": "Updated"])
+        )
+        try await client.saveInput(
+            backendURL: backendURL,
+            projectID: "project-1",
+            inputName: .template,
+            request: LauncherInputSaveRequest(
+                fields: ["template_text": ["Fallback"]],
+                files: [
+                    LauncherInputFileAttachment(
+                        fieldName: "template_upload",
+                        filename: "template.tex",
+                        contentType: "text/x-tex",
+                        data: Data("% template".utf8)
+                    ),
+                ]
+            )
+        )
+        try await client.removeFigure(backendURL: backendURL, projectID: "project-1", figurePath: "/tmp/figure.png")
+
+        let records = InputAPISuccessURLProtocol.records(for: host)
+        #expect(records.map(\.method) == ["GET", "POST", "POST", "POST", "POST"])
+        #expect(records.map(\.path) == [
+            "/api/projects/project-1/inputs/status",
+            "/api/projects/project-1/inputs/idea/validate",
+            "/api/projects/project-1/inputs/idea",
+            "/api/projects/project-1/inputs/template",
+            "/api/projects/project-1/inputs/figures/remove",
+        ])
+        let jsonSave = try #require(records[safe: 2])
+        let jsonPayload = try #require(JSONSerialization.jsonObject(with: jsonSave.body) as? [String: Any])
+        let fields = try #require(jsonPayload["fields"] as? [String: [String]])
+        #expect(jsonSave.contentType == "application/json")
+        #expect(fields["raw_markdown"] == ["Updated"])
+
+        let multipartSave = try #require(records[safe: 3])
+        let multipartBody = String(decoding: multipartSave.body, as: UTF8.self)
+        #expect(multipartSave.contentType?.contains("multipart/form-data") == true)
+        #expect(multipartBody.contains(#"name="template_text""#))
+        #expect(multipartBody.contains(#"name="template_upload"; filename="template.tex""#))
+        #expect(multipartBody.contains("% template"))
+
+        let removePayload = try #require(JSONSerialization.jsonObject(with: records[4].body) as? [String: String])
+        #expect(removePayload["path"] == "/tmp/figure.png")
+    }
+
+    @Test
+    func apiClientSurfacesInputActionErrorDetails() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [InputAPIErrorURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = LauncherInputAPIClient(session: session)
+        var capturedError: Error?
+
+        do {
+            _ = try await client.validateInput(
+                backendURL: URL(string: "http://127.0.0.1:8765")!,
+                projectID: "project-1",
+                inputName: .idea
+            )
+        } catch {
+            capturedError = error
+        }
+
+        let launcherError = try #require(capturedError as? LauncherError)
+        #expect(launcherError.localizedDescription.contains("Unknown input."))
+    }
+
+    @Test
+    func compositeInputClientUsesAPIWhenBackendURLIsPresentAndLocalFallbackWhenMissing() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [InputAPISuccessURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let localClient = RecordingNativeInputActionClient()
+        let client = LauncherInputActionClient(
+            apiClient: LauncherInputAPIClient(session: session),
+            localClient: localClient
+        )
+        let host = "input-composite-\(UUID().uuidString).test"
+        let backendURL = URL(string: "http://\(host):8765")!
+
+        _ = try await client.fetchInputStatus(settings: .defaultValue(), backendURL: backendURL, projectID: "project-1")
+        try await client.removeFigure(settings: .defaultValue(), backendURL: nil, projectID: "project-1", figurePath: "/tmp/figure.png")
+
+        #expect(InputAPISuccessURLProtocol.records(for: host).map(\.path) == ["/api/projects/project-1/inputs/status"])
+        #expect(await localClient.calls == [nil])
     }
 }
 
@@ -770,24 +907,126 @@ struct LauncherRunAPIClientTests {
 private actor RecordingNativeInputActionClient: LauncherInputActionPerforming {
     struct SavedInput: Equatable {
         let inputName: LauncherInputName
+        let backendURL: String?
         let request: LauncherInputSaveRequest
     }
 
     private(set) var savedInputs: [SavedInput] = []
+    private(set) var calls: [String?] = []
 
-    func fetchInputStatus(settings: LauncherSettings, projectID: String) async throws -> LauncherInputStatusResponse {
-        LauncherInputStatusResponse(status: "validated", summary: "ready", updatedAt: "2026-04-19T00:01:00+00:00", hasBlockers: false, inputs: [:])
+    func fetchInputStatus(settings: LauncherSettings, backendURL: URL?, projectID: String) async throws -> LauncherInputStatusResponse {
+        calls.append(backendURL?.absoluteString)
+        return LauncherInputStatusResponse(status: "validated", summary: "ready", updatedAt: "2026-04-19T00:01:00+00:00", hasBlockers: false, inputs: [:])
     }
 
-    func validateInput(settings: LauncherSettings, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot {
-        LauncherInputValidationSnapshot(messages: [], hasBlockers: false, completed: true, updatedAt: "2026-04-19T00:01:00+00:00")
+    func validateInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot {
+        calls.append(backendURL?.absoluteString)
+        return LauncherInputValidationSnapshot(messages: [], hasBlockers: false, completed: true, updatedAt: "2026-04-19T00:01:00+00:00")
     }
 
-    func saveInput(settings: LauncherSettings, projectID: String, inputName: LauncherInputName, request: LauncherInputSaveRequest) async throws {
-        savedInputs.append(SavedInput(inputName: inputName, request: request))
+    func saveInput(settings: LauncherSettings, backendURL: URL?, projectID: String, inputName: LauncherInputName, request: LauncherInputSaveRequest) async throws {
+        calls.append(backendURL?.absoluteString)
+        savedInputs.append(SavedInput(inputName: inputName, backendURL: backendURL?.absoluteString, request: request))
     }
 
-    func removeFigure(settings: LauncherSettings, projectID: String, figurePath: String) async throws {}
+    func removeFigure(settings: LauncherSettings, backendURL: URL?, projectID: String, figurePath: String) async throws {
+        calls.append(backendURL?.absoluteString)
+    }
+}
+
+private struct InputAPIRecordedRequest: Equatable {
+    let method: String
+    let path: String
+    let host: String?
+    let contentType: String?
+    let body: Data
+}
+
+private final class InputAPISuccessURLProtocol: URLProtocol {
+    nonisolated(unsafe) private static var recordedRecords: [InputAPIRecordedRequest] = []
+    private static let lock = NSLock()
+
+    static func records(for host: String) -> [InputAPIRecordedRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRecords.filter { $0.host == host }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.record(request)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        let data: Data
+        if request.url?.path.hasSuffix("/inputs/status") == true {
+            data = Data("""
+            {
+              "status": "validated",
+              "summary": "ready",
+              "updated_at": "2026-04-19T00:01:00+00:00",
+              "has_blockers": false,
+              "inputs": {}
+            }
+            """.utf8)
+        } else if request.url?.path.hasSuffix("/validate") == true {
+            data = Data(#"{"messages":[],"has_blockers":false,"completed":true}"#.utf8)
+        } else {
+            data = Data(#"{"project":{},"validation":{},"input":{"messages":[],"has_blockers":false,"completed":true}}"#.utf8)
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func record(_ request: URLRequest) {
+        let record = InputAPIRecordedRequest(
+            method: request.httpMethod ?? "",
+            path: request.url?.path ?? "",
+            host: request.url?.host,
+            contentType: request.value(forHTTPHeaderField: "Content-Type"),
+            body: inputBodyData(from: request) ?? Data()
+        )
+        lock.lock()
+        defer { lock.unlock() }
+        recordedRecords.append(record)
+    }
+}
+
+private final class InputAPIErrorURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"detail":"Unknown input."}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 private actor RecordingRunActionClient: LauncherRunActionPerforming {
@@ -890,6 +1129,35 @@ private final class RunAPIErrorURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+private func inputBodyData(from request: URLRequest) -> Data? {
+    if let body = request.httpBody {
+        return body
+    }
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    let bufferSize = 1024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+    while stream.hasBytesAvailable {
+        let read = stream.read(buffer, maxLength: bufferSize)
+        if read <= 0 {
+            break
+        }
+        data.append(buffer, count: read)
+    }
+    return data
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }
 
 private final class FakeInputWorkspaceProvider: LauncherWorkspaceProviding, @unchecked Sendable {

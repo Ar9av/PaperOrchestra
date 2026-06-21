@@ -20,7 +20,7 @@ public final class LauncherWorkspaceCoordinator {
         settingsStore: LauncherSettingsStore,
         workspaceProvider: LauncherWorkspaceProviding,
         notificationCoordinator: LauncherNotificationCoordinator,
-        inputActionClient: LauncherInputActionPerforming = LauncherNativeInputActionClient(),
+        inputActionClient: LauncherInputActionPerforming = LauncherInputActionClient(),
         runActionClient: LauncherRunActionPerforming = LauncherRunActionClient(),
         projectActionClient: LauncherProjectActionPerforming = LauncherProjectActionClient()
     ) {
@@ -178,55 +178,62 @@ public final class LauncherWorkspaceCoordinator {
     }
 
     @discardableResult
-    public func refreshSelectedProjectInputs() async throws -> LauncherInputStatusResponse {
+    public func refreshSelectedProjectInputs(backendURL: URL? = nil) async throws -> LauncherInputStatusResponse {
         guard let projectID = snapshot.selectedProject?.id else {
             throw LauncherError.processLaunchFailed("No selected project is available.")
         }
-        let status = try await inputActionClient.fetchInputStatus(settings: settings, projectID: projectID)
-        await refresh(backendReachable: snapshot.integrations.backendReachable)
+        let status = try await inputActionClient.fetchInputStatus(settings: settings, backendURL: backendURL, projectID: projectID)
+        await refresh(backendReachable: backendURL != nil)
         return status
     }
 
     @discardableResult
-    public func validateSelectedProjectInput(inputName: LauncherInputName) async throws -> LauncherInputValidationSnapshot {
+    public func validateSelectedProjectInput(
+        inputName: LauncherInputName,
+        backendURL: URL? = nil
+    ) async throws -> LauncherInputValidationSnapshot {
         guard let projectID = snapshot.selectedProject?.id else {
             throw LauncherError.processLaunchFailed("No selected project is available.")
         }
         let validation = try await inputActionClient.validateInput(
             settings: settings,
+            backendURL: backendURL,
             projectID: projectID,
             inputName: inputName
         )
-        await refresh(backendReachable: snapshot.integrations.backendReachable)
+        await refresh(backendReachable: backendURL != nil)
         return validation
     }
 
     public func saveSelectedProjectInput(
         inputName: LauncherInputName,
-        request: LauncherInputSaveRequest
+        request: LauncherInputSaveRequest,
+        backendURL: URL? = nil
     ) async throws {
         guard let projectID = snapshot.selectedProject?.id else {
             throw LauncherError.processLaunchFailed("No selected project is available.")
         }
         try await inputActionClient.saveInput(
             settings: settings,
+            backendURL: backendURL,
             projectID: projectID,
             inputName: inputName,
             request: request
         )
-        await refresh(backendReachable: snapshot.integrations.backendReachable)
+        await refresh(backendReachable: backendURL != nil)
     }
 
-    public func removeSelectedFigure(figurePath: String) async throws {
+    public func removeSelectedFigure(figurePath: String, backendURL: URL? = nil) async throws {
         guard let projectID = snapshot.selectedProject?.id else {
             throw LauncherError.processLaunchFailed("No selected project is available.")
         }
         try await inputActionClient.removeFigure(
             settings: settings,
+            backendURL: backendURL,
             projectID: projectID,
             figurePath: figurePath
         )
-        await refresh(backendReachable: snapshot.integrations.backendReachable)
+        await refresh(backendReachable: backendURL != nil)
     }
 
     public var canStartRun: Bool {
