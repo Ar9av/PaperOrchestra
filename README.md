@@ -1,7 +1,5 @@
 # PaperOrchestra
 
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/e4a6e52c-11d9-4860-805d-0ced3a553daf.svg)](https://oosmetrics.com/repo/Ar9av/PaperOrchestra)
-
 A pluggable skill pack that lets **any coding agent** in Claude Code, Cursor,
 Antigravity, Cline, Aider, OpenCode, etc. which can run the
 [**PaperOrchestra**](https://arxiv.org/pdf/2604.05018) multi-agent pipeline for
