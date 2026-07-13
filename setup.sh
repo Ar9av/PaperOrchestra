@@ -94,6 +94,7 @@ set_env_var() {
 
 set_env_var "SEMANTIC_SCHOLAR_API_KEY" "Semantic Scholar API key (SEMANTIC_SCHOLAR_API_KEY)"
 set_env_var "EXA_API_KEY"              "Exa API key (EXA_API_KEY)"
+set_env_var "TAVILY_API_KEY"           "Tavily API key (TAVILY_API_KEY)"
 set_env_var "PAPERBANANA_PATH"         "Path to PaperBanana executable (PAPERBANANA_PATH)"
 
 # ── Step 1c: ~/.paperorchestra/config ─────────────────────────
@@ -109,6 +110,7 @@ read_env_val() {
 cat > "$GLOBAL_CONFIG" <<EOF
 SEMANTIC_SCHOLAR_API_KEY=$(read_env_val SEMANTIC_SCHOLAR_API_KEY)
 EXA_API_KEY=$(read_env_val EXA_API_KEY)
+TAVILY_API_KEY=$(read_env_val TAVILY_API_KEY)
 PAPERBANANA_PATH=$(read_env_val PAPERBANANA_PATH)
 PAPERORCHESTRA_REPO=$SCRIPT_DIR
 EOF
@@ -157,7 +159,8 @@ echo " Agents ready:    Claude Code, Cursor, Windsurf, Antigravity/Gemini, Codex
 echo ""
 echo " Environment variables (set in .env):"
 echo "   SEMANTIC_SCHOLAR_API_KEY  → paper search and metadata"
-echo "   EXA_API_KEY               → web search for related work"
+echo "   EXA_API_KEY               → web search for related work (Exa)"
+echo "   TAVILY_API_KEY            → web search for related work (Tavily)"
 echo "   PAPERBANANA_PATH          → path to PaperBanana executable"
 echo ""
 echo " Bootstrap files:"
