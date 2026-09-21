@@ -21,11 +21,15 @@ Usage:
         --log    workspace/inputs/experimental_log.md \\
         --out    workspace/claim_evidence_report.json
 
+Optionally also writes a human-readable claim-evidence map (--out-md):
+a `Claim | Value | Section | Evidence | Status` table the refinement agent
+can paste into its revision agenda.
+
 Output JSON:
     {
-      "supported":   [ {claim, value, context, evidence_snippet} ],
-      "unsupported": [ {claim, value, context} ],
-      "uncertain":   [ {claim, value, context, reason} ],
+      "supported":   [ {claim, value, section, context, evidence_snippet} ],
+      "unsupported": [ {claim, value, section, context} ],
+      "uncertain":   [ {claim, value, section, context, reason} ],
       "summary": {
         "total": N,
         "supported": N, "unsupported": N, "uncertain": N
@@ -51,14 +55,20 @@ from dataclasses import dataclass, asdict
 CLAIM_PATTERNS: list[re.Pattern] = [
     # percentage: "by 3.2%", "of 87.4%", "achieves 92.1%"
     re.compile(
-        r"(?:by|of|achieves?|improves?\s+(?:by|to)|gains?|reduces?\s+(?:by|to)|"
+        r"(?:by|of|to|at|achieves?|improves?\s+(?:by|to)|gains?|reduces?\s+(?:by|to)|"
         r"increases?\s+(?:by|to)|decreases?\s+(?:by|to)|accuracy|f1|recall|"
-        r"precision|score|performance)\s+([+-]?\d+\.?\d*)\s*%",
+        r"precision|score|performance|rate|under|over|above|below)\s+"
+        r"[<>~=]{0,2}\s*([+-]?\d+\.?\d*)\s*%",
         re.IGNORECASE,
     ),
-    # ratio: "2.5× faster", "3× more", "×1.8"
+    # bare percentage anywhere: "28.7%", "+34%" — broad on purpose, the
+    # attribution pass below sorts cited numbers out of the claim set
+    re.compile(r"([+-]?\d+\.?\d*)\s*%"),
+    # ratio: "2.5× faster", "3x more"
     re.compile(r"(\d+\.?\d*)\s*[×x]\s*(?:faster|slower|more|less|better|worse)", re.IGNORECASE),
-    re.compile(r"[×x]\s*(\d+\.?\d*)", re.IGNORECASE),
+    # standalone multiplier: "2.13×", "×1.8"
+    re.compile(r"(\d+\.?\d*)\s*×"),
+    re.compile(r"×\s*(\d+\.?\d*)"),
     # absolute metric with label: "87.4 mAP", "0.923 AUC", "12.3 BLEU"
     re.compile(r"(\d+\.?\d*)\s+(?:mAP|AUC|BLEU|ROUGE|CIDEr|FID|IS|top-\d+|WER|CER|IoU)",
                re.IGNORECASE),
@@ -69,15 +79,27 @@ CLAIM_PATTERNS: list[re.Pattern] = [
         re.IGNORECASE,
     ),
     # LaTeX table cells: numbers in tabular environments (heuristic)
-    re.compile(r"\\textbf\{(\d+\.?\d*)\}", re.IGNORECASE),
-    re.compile(r"(\d{2,3}\.\d{1,2})\s*(?:\\\\|&|\})", re.IGNORECASE),
+    re.compile(r"\\textbf\{(\d+\.?\d*)\}"),
+    re.compile(r"(\d{2,3}\.\d{1,2})\s*(?:\\\\|&|\})"),
 ]
 
-# Patterns that indicate a sentence is in a related-work / prior-work context
-# (these numbers belong to cited papers, not our claims — mark as UNCERTAIN)
+# Pattern ids whose matches are structural rather than rhetorical. Small
+# integers and bare years hit these constantly, so they are filtered harder.
+GENERIC_PATTERN_IDS = {7, 8}
+
+# Patterns that indicate the number belongs to someone else's paper rather
+# than to us. `[CITE]` is the marker left behind by normalize_latex() where a
+# \cite/\citep/\citet command stood: a number in a sentence that carries a
+# citation is attributed, not claimed.
+# The cues are deliberately narrow. "baseline" and "compared to" were cues in
+# an earlier revision, which silently reclassified our own comparative results
+# ("improves over the strongest baseline by 3.2%") as someone else's numbers —
+# the single most common shape of a real claim in an Experiments section.
 PRIOR_WORK_CONTEXT = re.compile(
-    r"(?:previous|prior|existing|baselines?|compared\s+to|cite|cited|"
-    r"et\s+al\.|\\cite\{|\\citet\{|\\citep\{|concurrent|related)",
+    r"(?:\[CITE\]|prior\s+(?:work|methods?)|previous\s+(?:work|methods?|approaches)|"
+    r"existing\s+(?:work|methods?|systems?|tools?)|et\s+al\.|"
+    r"concurrent\s+work|related\s+work|report(?:s|ed)\s+by|according\s+to|"
+    r"documents?\s|found\s+that)",
     re.IGNORECASE,
 )
 
@@ -93,14 +115,67 @@ class Claim:
     context: str
     pattern_id: int
     is_prior_work: bool = False
+    section: str = "(unknown)"
+    sentence: str = ""
 
 
-def strip_latex_commands(text: str) -> str:
-    """Remove common LaTeX markup to reduce false-positive matches."""
-    text = re.sub(r"\\(?:label|ref|cite[tp]?|footnote|url|href)\{[^}]*\}", " ", text)
+def normalize_latex(text: str) -> str:
+    r"""
+    Flatten LaTeX markup into plain text that the claim patterns can match.
+
+    Three things matter here, and each of them silently suppressed claims in
+    the previous implementation:
+
+    1. `\%` is an escaped percent sign, not a comment. Stripping from the
+       first `%` on every line deleted the remainder of any line containing a
+       percentage — i.e. most sentences that state a result.
+    2. Percentages reach us as `3.2\%`, multipliers as `2.13$\times$`, and
+       bounds as `${>}85\%$`. Un-normalized, none of these match a pattern
+       written against plain `3.2%`.
+    3. `\cite{...}` must leave a marker rather than vanish, otherwise
+       attribution detection has nothing to key on and numbers belonging to
+       cited work get reported as our own unsupported claims.
+    """
+    # Citations become a marker (attribution signal), other refs are dropped.
+    text = re.sub(r"\\cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{[^}]*\}", " [CITE] ", text)
+    text = re.sub(r"\\(?:label|ref|cref|Cref|autoref|footnote|url|href)\{[^}]*\}", " ", text)
+    # Keep the abstract locatable: it precedes the first \section.
+    text = re.sub(r"\\begin\{abstract\}", r"\\section{Abstract}", text)
     text = re.sub(r"\\(?:begin|end)\{[^}]*\}", " ", text)
-    text = re.sub(r"%.*$", "", text, flags=re.MULTILINE)  # strip comments
+
+    # Real comments only: a `%` not preceded by a backslash.
+    text = re.sub(r"(?<!\\)%.*$", "", text, flags=re.MULTILINE)
+
+    # Escapes and math markup → plain equivalents.
+    text = text.replace(r"\%", "%")
+    text = re.sub(r"\\times\b", "×", text)
+    text = re.sub(r"\\(?:geq|ge)\b", ">=", text)
+    text = re.sub(r"\\(?:leq|le)\b", "<=", text)
+    text = re.sub(r"\\(?:sim|approx)\b", "~", text)
+    text = re.sub(r"\\textbf\{(\d+\.?\d*)\}", r"\\textbf{\1}", text)  # keep for pattern 7
+    text = re.sub(r"\{([<>~=]+)\}", r"\1", text)                       # ${>}85\% → >85%
+    text = re.sub(r"\\[,;:!]", " ", text)                              # thin spaces
+    # "sub-5%" / "under-3%": the hyphen is a prefix, not a minus sign. Left
+    # alone, [+-]? swallows it and the claim is extracted as "-5".
+    text = re.sub(r"(?<=[A-Za-z])-(?=\d+\.?\d*\s*%)", " ", text)
+    text = text.replace("$", " ").replace("~", " ")
     return text
+
+
+def section_index(text: str) -> list[tuple[int, str]]:
+    """Offsets of \\section{...} headings, for locating a claim in the paper."""
+    return [(m.start(), m.group(1).strip())
+            for m in re.finditer(r"\\section\*?\{([^}]*)\}", text)]
+
+
+def section_at(index: list[tuple[int, str]], offset: int) -> str:
+    name = "(preamble)"
+    for pos, title in index:
+        if pos <= offset:
+            name = title
+        else:
+            break
+    return name
 
 
 def _extract_sentence(text: str, match_start: int, match_end: int) -> str:
@@ -132,48 +207,55 @@ def _extract_sentence(text: str, match_start: int, match_end: int) -> str:
 
 def extract_claims(tex: str) -> list[Claim]:
     """Extract all quantitative claims from LaTeX source."""
-    clean = strip_latex_commands(tex)
-    seen_values: set[str] = set()
+    clean = normalize_latex(tex)
+    sections = section_index(clean)
+    # Dedup on (value, sentence) rather than on value alone. Keying on the
+    # value meant the first match anywhere in the paper fixed that number's
+    # classification forever: a figure reported in Related Work suppressed the
+    # identical number when we later claimed it in Experiments, and vice versa.
+    seen: set[tuple[str, str]] = set()
     claims: list[Claim] = []
 
     for pid, pat in enumerate(CLAIM_PATTERNS):
         for m in pat.finditer(clean):
             val = m.group(1).strip()
-            if not val or val in seen_values:
+            if not val:
                 continue
-            # Skip very small numbers that are likely formatting (0, 1, 2…)
-            try:
-                if float(val) < 0.5:
-                    continue
-            except ValueError:
-                pass
 
-            # Sentence-bounded context for prior-work detection (prevents
-            # adjacent-section bleed where "Previous methods..." in Related Work
-            # falsely flags numbers in the Results section)
+            if pid in GENERIC_PATTERN_IDS:
+                # Structural matches: drop small integers and bare years.
+                try:
+                    f = float(val)
+                except ValueError:
+                    continue
+                if f < 0.5:
+                    continue
+                if val.isdigit() and 1900 <= int(val) <= 2099:
+                    continue
+
             sentence = _extract_sentence(clean, m.start(), m.end())
+            key = (val, sentence[:120])
+            if key in seen:
+                continue
+            seen.add(key)
+
             is_prior = bool(PRIOR_WORK_CONTEXT.search(sentence))
 
             # Wider context for the human-readable context snippet
-            start = max(0, m.start() - CONTEXT_WINDOW)
-            end = min(len(clean), m.end() + CONTEXT_WINDOW)
-            ctx = clean[start:end].replace("\n", " ").strip()
+            start_ctx = max(0, m.start() - CONTEXT_WINDOW)
+            end_ctx = min(len(clean), m.end() + CONTEXT_WINDOW)
+            ctx = clean[start_ctx:end_ctx].replace("\n", " ").strip()
 
-            claims.append(Claim(value=val, context=ctx, pattern_id=pid, is_prior_work=is_prior))
-            seen_values.add(val)
+            claims.append(Claim(
+                value=val,
+                context=ctx,
+                pattern_id=pid,
+                is_prior_work=is_prior,
+                section=section_at(sections, m.start()),
+                sentence=sentence,
+            ))
 
     return claims
-
-
-def build_number_index(log_text: str) -> set[str]:
-    """
-    Extract all numeric strings from experimental_log.md for O(1) lookup.
-    Returns a set of string representations (e.g. "87.4", "3.2", "2.5").
-    """
-    nums: set[str] = set()
-    for m in re.finditer(r"\b(\d+\.?\d*)\b", log_text):
-        nums.add(m.group(1))
-    return nums
 
 
 def find_evidence(value: str, log_text: str) -> str | None:
@@ -190,6 +272,45 @@ def find_evidence(value: str, log_text: str) -> str | None:
     return log_text[start:end].replace("\n", " ").strip()
 
 
+def write_claim_map(report: dict, path: str) -> None:
+    """
+    Emit the claim-evidence map: one row per extracted claim, ordered
+    unsupported → attributed → supported so the revision agenda reads
+    top-down.
+    """
+    rows: list[tuple[str, ...]] = []
+    for item in report["unsupported"]:
+        rows.append((item["value"], item.get("section", ""), item["claim"],
+                     "—", "**needs evidence**"))
+    for item in report["uncertain"]:
+        rows.append((item["value"], item.get("section", ""), item["claim"],
+                     "cited source", "attributed"))
+    for item in report["supported"]:
+        rows.append((item["value"], item.get("section", ""), item["claim"],
+                     item.get("evidence_snippet", ""), "supported"))
+
+    def cell(s: str, width: int = 160) -> str:
+        return s.replace("|", "\\|").replace("\n", " ").strip()[:width]
+
+    lines = [
+        "# Claim-Evidence Map",
+        "",
+        f"{report['summary']['total']} quantitative claims extracted from the draft. ",
+        "Rows marked **needs evidence** carry a number that appears nowhere in ",
+        "`experimental_log.md` and carries no citation — verify, attribute, or remove.",
+        "",
+        "| Value | Section | Claim | Evidence | Status |",
+        "|---|---|---|---|---|",
+    ]
+    for value, section, claim, evidence, status in rows:
+        lines.append(f"| `{value}` | {cell(section, 40)} | {cell(claim)} | {cell(evidence, 80)} | {status} |")
+    lines.append("")
+
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(lines))
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -197,6 +318,7 @@ def main() -> int:
     p.add_argument("--paper", required=True, help="Path to paper.tex (draft)")
     p.add_argument("--log",   required=True, help="Path to experimental_log.md")
     p.add_argument("--out",   required=True, help="Output path for claim_evidence_report.json")
+    p.add_argument("--out-md", help="Optional path for the human-readable claim-evidence map (markdown)")
     args = p.parse_args()
 
     for path in (args.paper, args.log):
@@ -210,7 +332,6 @@ def main() -> int:
         log_text = f.read()
 
     claims = extract_claims(tex)
-    log_nums = build_number_index(log_text)
 
     supported: list[dict] = []
     unsupported: list[dict] = []
@@ -221,30 +342,25 @@ def main() -> int:
 
         if c.is_prior_work:
             uncertain.append({
-                "claim": c.context[:200],
+                "claim": c.sentence[:300] or c.context[:200],
                 "value": c.value,
+                "section": c.section,
                 "context": c.context,
-                "reason": "appears in prior-work / citation context — not our claim",
+                "reason": "sentence carries a citation or prior-work cue — attributed, not claimed",
             })
         elif evidence is not None:
             supported.append({
-                "claim": c.context[:200],
+                "claim": c.sentence[:300] or c.context[:200],
                 "value": c.value,
+                "section": c.section,
                 "context": c.context,
                 "evidence_snippet": evidence,
             })
-        elif c.value in log_nums:
-            # Number is in the log but not in matching sentence context — weak support
-            supported.append({
-                "claim": c.context[:200],
-                "value": c.value,
-                "context": c.context,
-                "evidence_snippet": f"[number {c.value!r} found in log, no local snippet]",
-            })
         else:
             unsupported.append({
-                "claim": c.context[:200],
+                "claim": c.sentence[:300] or c.context[:200],
                 "value": c.value,
+                "section": c.section,
                 "context": c.context,
             })
 
@@ -264,11 +380,14 @@ def main() -> int:
     with open(args.out, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
+    if args.out_md:
+        write_claim_map(report, args.out_md)
+
     s = report["summary"]
     print(f"Claim-evidence gate: {s['total']} claims extracted")
     print(f"  supported:   {s['supported']}")
     print(f"  unsupported: {s['unsupported']}")
-    print(f"  uncertain:   {s['uncertain']}")
+    print(f"  attributed:  {s['uncertain']}  (cited to another paper)")
 
     if unsupported:
         print("\nUNSUPPORTED claims (not found in experimental_log.md):")
