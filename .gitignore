@@ -37,3 +37,6 @@ secrets.json
 .secrets/
 EXA_API_KEY*
 brain/
+
+# Local agent-registry file written by Prismor tooling
+.prismor/

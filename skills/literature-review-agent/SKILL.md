@@ -342,6 +342,21 @@ Substitute the template placeholders:
 **Also prepend the Anti-Leakage Prompt** from
 `../paper-orchestra/references/anti-leakage-prompt.md`.
 
+**Also append the Introduction and Related Work templates** from
+`skills/shared/section_rhetoric.md`. Two constraints from that file do most
+of the work here:
+
+- The Introduction's Part 2 must state a technical challenge as *limitation
+  plus cause*. "Prior methods are slow" is a symptom; "prior methods
+  re-encode the full context at every step, so latency grows linearly in
+  dialogue length" is a challenge the method can then attack. A Part 2
+  without a cause makes Part 3 unwritable.
+- Each Related Work paragraph runs: scope sentence → representative methods →
+  the limitation of that group *tied to our challenge* → transition. Grouping
+  is by technical theme, never by year. The `min_cite_paper_count` gate
+  measures coverage, not positioning — a draft can pass it and still be a
+  citation dump.
+
 Run your LLM with the combined prompt against `template.tex`. The agent's
 job is to fill in the empty Introduction and Related Work sections of the
 template **and leave everything else untouched**. Output: the full
@@ -451,3 +466,4 @@ If your host has no web search tool, switch to degraded mode:
 - `scripts/openalex_client.py` — **NEW** OpenAlex title/DOI lookup for cross-index corroboration (no key; reads `OPENALEX_MAILTO` / `PAPER_ORCHESTRA_MAILTO`)
 - `scripts/cross_verify.py` — **NEW** cross-corroborate the S2-verified pool against Crossref + OpenAlex; flags hallucinated citations (WARN gate)
 - `skills/shared/research_brief_template.md` — **NEW** §2 schema; append after intro_relwork.tex is drafted
+- `skills/shared/section_rhetoric.md` — **NEW** Introduction logic chain + Related Work paragraph template

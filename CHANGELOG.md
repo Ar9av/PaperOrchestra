@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`skills/shared/section_rhetoric.md`** — per-section structural templates (three Abstract variants, the Introduction logic chain, the Related Work paragraph template, the Method module triad, the three Experiments questions, Conclusion scope-vs-defect limitations) plus per-section checklists. The App. F.1 prompts specify what each section must contain but not how its paragraphs should be shaped; this supplies that layer. Wired into Step 3 (Intro + Related Work), Step 4 (Abstract/Method/Experiments/Conclusion), and the Step 5 reviewer's Logical Flow axis. Templates adapted from [Master-cai/Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT).
+
+---
+
 ## [v0.2.0] — 2026-04-25
 
 ### Added
