@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`table_lint.py`** (section-writing-agent) — checks generated tables against the booktabs conventions. ERRORs: vertical rules, `\hline`/`\cline`, missing `\toprule`/`\bottomrule`, caption below the tabular, missing caption, `table` environment with no tabular. WARNs: no `\label`, six-word captions, numeric columns with no `↑`/`↓` direction marker, mixed decimal precision within a numeric column, tables placed after the Conclusion. Runs as a Step 4 gate alongside `orphan_cite_gate.py` and `latex_sanity.py`.
+- **`test_table_lint.py`** — 19 stdlib-only tests, one per rule.
+- **Readability rules section in `references/latex-table-patterns.md`** — metric direction in headers, units in headers rather than cells, constant decimal precision per column, one-table-one-message, `\multicolumn` + `\cmidrule` grouping instead of vertical separators, restrained highlighting, and what a caption is for.
+
+---
+
 ## [v0.2.0] — 2026-04-25
 
 ### Added

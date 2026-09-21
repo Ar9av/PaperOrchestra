@@ -118,6 +118,11 @@ python skills/section-writing-agent/scripts/latex_sanity.py \
 # Anti-leakage post-check: no author names, emails, affiliations
 python skills/paper-orchestra/scripts/anti_leakage_check.py \
     workspace/drafts/paper.tex
+
+# Table conventions: booktabs rules, caption placement, metric direction,
+# decimal precision. ERRORs block; WARNs go into the re-prompt.
+python skills/section-writing-agent/scripts/table_lint.py \
+    workspace/drafts/paper.tex
 ```
 
 If any gate fails, **re-prompt the writing call** with the gate's error
@@ -229,3 +234,4 @@ host agent MUST honor them on the writing call:
 - `scripts/extract_metrics.py` — markdown tables in experimental_log → JSON
 - `scripts/latex_sanity.py` — unmatched braces, env mismatches, specials
 - `scripts/orphan_cite_gate.py` — every `\cite{KEY}` exists in refs.bib
+- `scripts/table_lint.py` — **NEW** booktabs rule violations + table readability conventions

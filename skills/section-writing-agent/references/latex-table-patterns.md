@@ -81,6 +81,49 @@ verbatim. Important rules from the prompt:
   Use `c` only for narrow centered identifiers.
 - **Use `\textbf{...}` for bold**, never `**...**` (markdown).
 
+## Readability rules
+
+Booktabs gets the rules right; these get the table *read* right. A reviewer
+spends seconds on a results table and forms an opinion from it.
+
+- **Label metric direction in the header** — `Accuracy $\uparrow$`,
+  `LPIPS $\downarrow$`, `Latency (ms) $\downarrow$`. Never make a reader infer
+  which way is better. `table_lint.py` warns on any numeric column whose
+  header carries no arrow.
+- **Put units in the header**, not in the cells: `Latency (ms)`, not
+  `12.3 ms` repeated down the column.
+- **Keep decimal precision constant within a column.** `85.4` and `8.14` in
+  one column reads as two different measurements. Pick the precision the
+  weakest measurement justifies and hold it.
+- **One table, one message.** Unrelated results in one table means neither
+  lands. Split rather than widen.
+- **Group multi-dataset results with `\multicolumn` + `\cmidrule`**, never
+  with vertical separators:
+
+```latex
+\toprule
+& \multicolumn{2}{c}{Seen} & \multicolumn{2}{c}{Unseen} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+Method & J $\uparrow$ & F $\uparrow$ & J $\uparrow$ & F $\uparrow$ \\
+\midrule
+```
+
+- **Highlight sparingly.** Bold the best result; if a second emphasis is
+  genuinely needed, underline the runner-up. Colored cells beyond one or two
+  rows stop being emphasis.
+- **Captions carry the setting, protocol, and notation** — not discussion. A
+  six-word caption is a label, not a caption.
+
+## Checking a draft
+
+```bash
+python skills/section-writing-agent/scripts/table_lint.py workspace/drafts/paper.tex
+```
+
+ERRORs are booktabs/LaTeX rule violations (vertical rules, `\hline`, caption
+below the tabular, missing rules); WARNs are the readability conventions
+above. Exit 1 on any ERROR, or on any WARN with `--strict`.
+
 ## Wide tables (2-column conference templates)
 
 For tables that don't fit single-column width, use `table*` and `tabular*`
