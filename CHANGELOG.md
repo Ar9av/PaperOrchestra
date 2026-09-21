@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`reverse_outline.py`** (content-refinement-agent) — strips a draft to one topic sentence per paragraph and flags `no-topic-sentence` (opens on a connective, or too short to carry a message), `overlong`, `multi-pivot`, `orphan`, and `citation-dump`. Run-in bold headings are merged forward so the convention does not register as a missing topic sentence. Advisory by default; `--strict` exits 1 on any flag.
+- Wired as **Gate C** in the pre-refinement sequence (research brief becomes Gate D) and into every reviewer call, where the topic-sentence sequence is the input for the rubric's Logical Flow axis.
+- **`references/reverse-outline.md`** — flag semantics and the four questions to ask of a topic-sentence sequence.
+- **`test_reverse_outline.py`** — 16 stdlib-only tests covering preamble/float stripping, run-in heading merges, and each flag.
+
+---
+
 ## [v0.2.0] — 2026-04-25
 
 ### Added

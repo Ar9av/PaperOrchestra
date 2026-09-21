@@ -103,7 +103,25 @@ an additional instruction: "The following numeric values appear in the paper but
 cannot be corroborated in experimental_log.md — verify or remove them: ..."
 Do NOT halt on Gate B warnings; the revision agent will address them.
 
-**Gate C — Read research brief** (every run, no exit code):
+**Gate C — Reverse outline** (runs once, advisory):
+
+```bash
+python skills/content-refinement-agent/scripts/reverse_outline.py \
+    --paper workspace/drafts/paper.tex \
+    --out   workspace/reverse_outline.md \
+    --json  workspace/reverse_outline.json
+```
+
+Strips the draft to one line per paragraph — its topic sentence — and flags
+paragraphs with no topic sentence, two messages, or a citation dump. Read
+`workspace/reverse_outline.md` before the first reviewer call and pass it into
+the reviewer call as the input for the **Logical Flow** axis. Structural
+findings enter the revision agenda as *reorder / merge / split / cut*
+instructions; sentence-level rewriting cannot fix a sequencing problem, and
+iterations spent polishing a misordered section still count against the budget.
+See `references/reverse-outline.md`.
+
+**Gate D — Read research brief** (every run, no exit code):
 
 If `workspace/research_brief.md` exists, read it before all reviewer calls.
 Pass the "Sections where evidence was thin" list from §4 as additional
@@ -162,6 +180,12 @@ DO NOT RE-FLAG (already addressed in prior iterations):
 
 This prevents the reviewer from re-discovering already-fixed issues and
 from missing genuinely stuck problems.
+
+Regenerate the reverse outline for the current draft (`reverse_outline.py`,
+Gate C) and include `workspace/reverse_outline.md` in the reviewer's user
+message. The reviewer scores Logical Flow against the topic-sentence sequence
+rather than against its impression of the prose, which is what makes that axis
+move for structural reasons instead of stylistic ones.
 
 Load `references/reviewer-rubric.md` as the system prompt for the simulated
 reviewer call. The reviewer reads `iter<N-1>/paper.pdf` (or `paper.tex` if
@@ -378,10 +402,12 @@ These rules prevent reward hacking and keep the refinement loop honest.
 - `references/writing-quality-check.md` — 5-category anti-AI-prose checklist (pointer to shared)
 - `references/ai-failure-modes.md` — 7-mode integrity gate run before first iteration (pointer to shared)
 - `references/da-reviewer.md` — Devil's Advocate reviewer protocol and concession rules
+- `references/reverse-outline.md` — **NEW** what the paragraph flags mean and how to read a reverse outline
 - `scripts/score_delta.py` — accept/revert/halt decision from two score JSONs; emits decision bands + target-met halt (exit 5)
 - `scripts/decision_band.py` — map an overall score to a canonical decision band (Accept/Minor/Major/Reject)
 - `scripts/concession_guard.py` — enforce the DA concession-threshold protocol; blocks accept on a standing CRITICAL
 - `scripts/score_trajectory.py` — per-dimension score history, regression and plateau detection
+- `scripts/reverse_outline.py` — **NEW** topic-sentence outline + structural paragraph flags
 - `scripts/apply_worklog.py` — append iteration entries to worklog.json
 - `scripts/snapshot.py` — copy paper.tex/paper.pdf into iter<N>/ for rollback
 - `scripts/update_critique_memory.py` — **NEW** build/update critique_memory.json from worklog + review (AutoSci-inspired reviewer memory)
