@@ -24,6 +24,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Wired as **Gate C** in the pre-refinement sequence (research brief becomes Gate D) and into every reviewer call, where the topic-sentence sequence is the input for the rubric's Logical Flow axis.
 - **`references/reverse-outline.md`** — flag semantics and the four questions to ask of a topic-sentence sequence.
 - **`test_reverse_outline.py`** — 16 stdlib-only tests covering preamble/float stripping, run-in heading merges, and each flag.
+- **`table_lint.py`** (section-writing-agent) — checks generated tables against the booktabs conventions. ERRORs: vertical rules, `\hline`/`\cline`, missing `\toprule`/`\bottomrule`, caption below the tabular, missing caption, `table` environment with no tabular. WARNs: no `\label`, six-word captions, numeric columns with no `↑`/`↓` direction marker, mixed decimal precision within a numeric column, tables placed after the Conclusion. Runs as a Step 4 gate alongside `orphan_cite_gate.py` and `latex_sanity.py`.
+- **`test_table_lint.py`** — 19 stdlib-only tests, one per rule.
+- **Readability rules section in `references/latex-table-patterns.md`** — metric direction in headers, units in headers rather than cells, constant decimal precision per column, one-table-one-message, `\multicolumn` + `\cmidrule` grouping instead of vertical separators, restrained highlighting, and what a caption is for.
 
 ---
 
