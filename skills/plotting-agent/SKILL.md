@@ -146,6 +146,40 @@ overview diagrams, write matplotlib patches code yourself.
   hallucinate axes, baselines, or trends. Source-of-truth is
   `experimental_log.md` or `idea.md`.
 
+## Verification gate (run before handing off to Step 3/4)
+
+The hard rules above are stated everywhere and enforced nowhere. This gate
+makes the mechanical half checkable:
+
+```bash
+python skills/plotting-agent/scripts/figure_lint.py \
+    --figures workspace/figures \
+    --captions workspace/figures/captions.json
+```
+
+ERRORs: a rendered figure with no caption, a caption with no file, an empty
+caption, a raster too small to print. WARNs: resolution under ~300 DPI at
+single-column width, aspect ratios past 4:1, captions that number themselves
+(`Figure 3: ...`), captions under eight words, and a figure set with no
+architecture/pipeline/overview figure in it.
+
+PNG geometry is read from the IHDR and pHYs chunks directly — no imaging
+library, consistent with the repo's deterministic-helpers-only rule.
+
+After Step 4 has produced `paper.tex`, re-run with `--paper` to confirm the
+draft uses every figure Step 2 rendered and references no file that does not
+exist:
+
+```bash
+python skills/plotting-agent/scripts/figure_lint.py \
+    --figures workspace/figures \
+    --paper   workspace/drafts/paper.tex
+```
+
+Fix ERRORs before continuing. A missing caption is the one failure that
+propagates silently: Step 4 splices the figure with whatever caption it
+invents, and Step 5 has no way to know the caption was never grounded.
+
 ## Pre-existing figures (PlotOn mode)
 
 If `workspace/inputs/figures/` is non-empty, check whether any pre-existing
@@ -165,3 +199,4 @@ have no pre-existing counterpart.
 - `scripts/render_matplotlib.py` — render a JSON plot spec → PNG (matplotlib fallback)
 - `scripts/render_diagram.py` — render a JSON diagram spec → PNG (matplotlib fallback)
 - `scripts/paperbanana_render.py` — **NEW** PaperBanana backbone wrapper (reads `PAPERBANANA_PATH` from env)
+- `scripts/figure_lint.py` — **NEW** resolution / aspect / caption-coverage gate; `--paper` cross-checks `\includegraphics`

@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Global value dedup let match order decide classification.** A number first seen in Related Work suppressed the identical number claimed in Experiments. Claims are now deduped on `(value, sentence)`.
 - **`baseline` / `compared to` were attribution cues**, which reclassified our own comparative results ("improves over the strongest baseline by 3.2%") as someone else's numbers. Cues narrowed to citation markers and explicit ascriptions.
 - **Removed the unreachable weak-support branch** and the `build_number_index()` helper that only fed it.
+- **`examples/agentic-security-report`: `fig_attack_success_rates` had no entry in `captions.json`** while being referenced by the paper — found by the new linter on its first run. Caption added from the figure's own `\caption` text.
 
 ### Added
 
@@ -27,6 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`table_lint.py`** (section-writing-agent) — checks generated tables against the booktabs conventions. ERRORs: vertical rules, `\hline`/`\cline`, missing `\toprule`/`\bottomrule`, caption below the tabular, missing caption, `table` environment with no tabular. WARNs: no `\label`, six-word captions, numeric columns with no `↑`/`↓` direction marker, mixed decimal precision within a numeric column, tables placed after the Conclusion. Runs as a Step 4 gate alongside `orphan_cite_gate.py` and `latex_sanity.py`.
 - **`test_table_lint.py`** — 19 stdlib-only tests, one per rule.
 - **Readability rules section in `references/latex-table-patterns.md`** — metric direction in headers, units in headers rather than cells, constant decimal precision per column, one-table-one-message, `\multicolumn` + `\cmidrule` grouping instead of vertical separators, restrained highlighting, and what a caption is for.
+- **`figure_lint.py`** (plotting-agent) — makes the Step 2 hard rules checkable. ERRORs: rendered figure with no caption, caption with no file, empty caption, raster too small to print. WARNs: under ~300 DPI at single-column width, aspect ratio past 4:1, self-numbering captions (`Figure 3: ...`), captions under eight words, and a figure set containing no architecture/pipeline figure. `--paper` cross-checks that the draft uses every rendered figure and references no missing file. PNG geometry is read from the IHDR/pHYs chunks directly, so no imaging dependency is added.
+- **`test_figure_lint.py`** — 19 stdlib-only tests; PNG fixtures are synthesized in a temp directory rather than committed as binaries.
 
 ---
 
