@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`figure_lint.py`** (plotting-agent) — makes the Step 2 hard rules checkable. ERRORs: rendered figure with no caption, caption with no file, empty caption, raster too small to print. WARNs: under ~300 DPI at single-column width, aspect ratio past 4:1, self-numbering captions (`Figure 3: ...`), captions under eight words, and a figure set containing no architecture/pipeline figure. `--paper` cross-checks that the draft uses every rendered figure and references no missing file. PNG geometry is read from the IHDR/pHYs chunks directly, so no imaging dependency is added.
+- **`test_figure_lint.py`** — 19 stdlib-only tests; PNG fixtures are synthesized in a temp directory rather than committed as binaries.
+
+### Fixed
+
+- **`examples/agentic-security-report`: `fig_attack_success_rates` had no entry in `captions.json`** while being referenced by the paper — found by the new linter on its first run. Caption added from the figure's own `\caption` text.
+
+---
+
 ## [v0.2.0] — 2026-04-25
 
 ### Added
