@@ -90,20 +90,48 @@ at the start of iteration 1.
 
 ```bash
 python skills/paper-orchestra/scripts/claim_evidence_gate.py \
-    --paper workspace/drafts/paper.tex \
-    --log   workspace/inputs/experimental_log.md \
-    --out   workspace/claim_evidence_report.json
+    --paper  workspace/drafts/paper.tex \
+    --log    workspace/inputs/experimental_log.md \
+    --out    workspace/claim_evidence_report.json \
+    --out-md workspace/claim_evidence_map.md
 ```
+
+The gate sorts every number in the draft into `supported` (the value is in
+`experimental_log.md`), `attributed` (the sentence carries a citation or a
+prior-work cue), or `needs evidence` (neither). Only the third category is a
+finding. See `references/claim-evidence-map.md`.
 
 Exit 0 → PASS, proceed normally.
 Exit 1 → WARN: unsupported numeric claims found. Log in worklog.json as:
 `{gate: "claim_evidence", status: "WARN", unsupported_count: N, report: "workspace/claim_evidence_report.json"}`
-Pass the `unsupported` list from the report to the revision agent in Step 3 as
-an additional instruction: "The following numeric values appear in the paper but
-cannot be corroborated in experimental_log.md — verify or remove them: ..."
+Pass the `needs evidence` rows of `workspace/claim_evidence_map.md` to the
+revision agent in Step 3 as an additional instruction: "The following values
+appear in the paper but cannot be corroborated in experimental_log.md and
+carry no citation — restate them from logged values, attribute them, or remove
+the claim. Do not weaken the sentence into vagueness to make the number
+defensible." A row that survives two iterations should be deleted rather than
+reworded again.
 Do NOT halt on Gate B warnings; the revision agent will address them.
 
-**Gate C — Read research brief** (every run, no exit code):
+**Gate C — Reverse outline** (runs once, advisory):
+
+```bash
+python skills/content-refinement-agent/scripts/reverse_outline.py \
+    --paper workspace/drafts/paper.tex \
+    --out   workspace/reverse_outline.md \
+    --json  workspace/reverse_outline.json
+```
+
+Strips the draft to one line per paragraph — its topic sentence — and flags
+paragraphs with no topic sentence, two messages, or a citation dump. Read
+`workspace/reverse_outline.md` before the first reviewer call and pass it into
+the reviewer call as the input for the **Logical Flow** axis. Structural
+findings enter the revision agenda as *reorder / merge / split / cut*
+instructions; sentence-level rewriting cannot fix a sequencing problem, and
+iterations spent polishing a misordered section still count against the budget.
+See `references/reverse-outline.md`.
+
+**Gate D — Read research brief** (every run, no exit code):
 
 If `workspace/research_brief.md` exists, read it before all reviewer calls.
 Pass the "Sections where evidence was thin" list from §4 as additional
@@ -162,6 +190,12 @@ DO NOT RE-FLAG (already addressed in prior iterations):
 
 This prevents the reviewer from re-discovering already-fixed issues and
 from missing genuinely stuck problems.
+
+Regenerate the reverse outline for the current draft (`reverse_outline.py`,
+Gate C) and include `workspace/reverse_outline.md` in the reviewer's user
+message. The reviewer scores Logical Flow against the topic-sentence sequence
+rather than against its impression of the prose, which is what makes that axis
+move for structural reasons instead of stylistic ones.
 
 Load `references/reviewer-rubric.md` as the system prompt for the simulated
 reviewer call. The reviewer reads `iter<N-1>/paper.pdf` (or `paper.tex` if
@@ -378,10 +412,13 @@ These rules prevent reward hacking and keep the refinement loop honest.
 - `references/writing-quality-check.md` — 5-category anti-AI-prose checklist (pointer to shared)
 - `references/ai-failure-modes.md` — 7-mode integrity gate run before first iteration (pointer to shared)
 - `references/da-reviewer.md` — Devil's Advocate reviewer protocol and concession rules
+- `references/claim-evidence-map.md` — **NEW** the three claim statuses and how the revision agenda consumes them
+- `references/reverse-outline.md` — **NEW** what the paragraph flags mean and how to read a reverse outline
 - `scripts/score_delta.py` — accept/revert/halt decision from two score JSONs; emits decision bands + target-met halt (exit 5)
 - `scripts/decision_band.py` — map an overall score to a canonical decision band (Accept/Minor/Major/Reject)
 - `scripts/concession_guard.py` — enforce the DA concession-threshold protocol; blocks accept on a standing CRITICAL
 - `scripts/score_trajectory.py` — per-dimension score history, regression and plateau detection
+- `scripts/reverse_outline.py` — **NEW** topic-sentence outline + structural paragraph flags
 - `scripts/apply_worklog.py` — append iteration entries to worklog.json
 - `scripts/snapshot.py` — copy paper.tex/paper.pdf into iter<N>/ for rollback
 - `scripts/update_critique_memory.py` — **NEW** build/update critique_memory.json from worklog + review (AutoSci-inspired reviewer memory)
@@ -389,3 +426,4 @@ These rules prevent reward hacking and keep the refinement loop honest.
 - `skills/shared/ai_failure_modes.md` — full AI research failure modes gate (7 modes)
 - `skills/shared/handoff_schemas.md` — formal data contracts between all pipeline steps
 - `skills/shared/research_brief_template.md` — **NEW** research brief schema (read §1–§4 before first reviewer call)
+- `skills/shared/section_rhetoric.md` — **NEW** per-section structural templates; the per-section checklists feed the reviewer's Logical Flow axis
