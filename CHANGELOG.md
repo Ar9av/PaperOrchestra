@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **`claim_evidence_gate.py` extracted almost nothing from real LaTeX.** Three compounding bugs: `\%` was treated as a comment start (deleting the rest of every line containing a percentage), percentages/multipliers/bounds were matched against plain-text forms that never occur in LaTeX (`3.2\%`, `2.13$\times$`, `${>}85\%$`), and `\cite{...}` was deleted before attribution detection ran, so the citation cues in `PRIOR_WORK_CONTEXT` could never fire. On the bundled `agentic-security-report` example the gate found **1 claim**; it now finds **52**, and a fabricated uncited result injected into that paper is now caught (exit 1) where it previously passed.
+- **Global value dedup let match order decide classification.** A number first seen in Related Work suppressed the identical number claimed in Experiments. Claims are now deduped on `(value, sentence)`.
+- **`baseline` / `compared to` were attribution cues**, which reclassified our own comparative results ("improves over the strongest baseline by 3.2%") as someone else's numbers. Cues narrowed to citation markers and explicit ascriptions.
+- **Removed the unreachable weak-support branch** and the `build_number_index()` helper that only fed it.
+
+### Added
+
+- **`--out-md` claim-evidence map** — `Value | Section | Claim | Evidence | Status` table ordered needs-evidence first, for direct use as a revision agenda. Claims are now tagged with the section they appear in (including `Abstract`).
+- **`skills/paper-orchestra/scripts/test_claim_evidence_gate.py`** — 18 stdlib-only regression tests, one per bug above. Run: `python3 skills/paper-orchestra/scripts/test_claim_evidence_gate.py`.
+- **`skills/content-refinement-agent/references/claim-evidence-map.md`** — the three claim statuses, what the gate does not check, and how Step 0 feeds findings into the revision agenda.
+
+---
+
 ## [v0.2.0] — 2026-04-25
 
 ### Added
