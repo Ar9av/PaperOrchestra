@@ -20,6 +20,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`--out-md` claim-evidence map** — `Value | Section | Claim | Evidence | Status` table ordered needs-evidence first, for direct use as a revision agenda. Claims are now tagged with the section they appear in (including `Abstract`).
 - **`skills/paper-orchestra/scripts/test_claim_evidence_gate.py`** — 18 stdlib-only regression tests, one per bug above. Run: `python3 skills/paper-orchestra/scripts/test_claim_evidence_gate.py`.
 - **`skills/content-refinement-agent/references/claim-evidence-map.md`** — the three claim statuses, what the gate does not check, and how Step 0 feeds findings into the revision agenda.
+- **`reverse_outline.py`** (content-refinement-agent) — strips a draft to one topic sentence per paragraph and flags `no-topic-sentence` (opens on a connective, or too short to carry a message), `overlong`, `multi-pivot`, `orphan`, and `citation-dump`. Run-in bold headings are merged forward so the convention does not register as a missing topic sentence. Advisory by default; `--strict` exits 1 on any flag.
+- Wired as **Gate C** in the pre-refinement sequence (research brief becomes Gate D) and into every reviewer call, where the topic-sentence sequence is the input for the rubric's Logical Flow axis.
+- **`references/reverse-outline.md`** — flag semantics and the four questions to ask of a topic-sentence sequence.
+- **`test_reverse_outline.py`** — 16 stdlib-only tests covering preamble/float stripping, run-in heading merges, and each flag.
 
 ---
 
