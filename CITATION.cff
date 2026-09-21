@@ -6,6 +6,8 @@ authors:
   - name: "ar9av"
 repository-code: "https://github.com/ar9av/paper-orchestra"
 license: MIT
+version: "0.3.0"
+date-released: "2026-09-21"
 preferred-citation:
   type: article
   title: "PaperOrchestra: A Multi-Agent Framework for Automated AI Research Paper Writing"
