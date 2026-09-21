@@ -79,6 +79,15 @@ Load `references/prompt.md` (verbatim Section Writing Agent prompt from App.
 F.1). Prepend the Anti-Leakage Prompt from
 `../paper-orchestra/references/anti-leakage-prompt.md`.
 
+Then append the **craft constraints** for the sections being drafted. Pull
+them from `skills/shared/section_rhetoric.md` — the global rules plus only
+the templates for Abstract, Method, Experiments, and Conclusion (Intro and
+Related Work are already written by Step 3; do not re-open them). The App.
+F.1 prompt specifies what each section must *contain*; the rhetoric
+templates specify the paragraph roles and their order. Without them the
+model produces content-complete sections whose paragraphs all make the same
+kind of move, which the Step 5 reviewer scores down on Logical Flow.
+
 The user message contains:
 
 - `outline.json` — full content
@@ -194,6 +203,30 @@ host agent MUST honor them on the writing call:
   `captions.json` and should generally be used as-is.
 - Do NOT include "Figure X" in the caption text — LaTeX handles numbering.
 
+### Rhetorical structure
+
+Templates and checklists live in `skills/shared/section_rhetoric.md`. The
+constraints the writing call must honor:
+
+- **One paragraph, one message, stated in the first sentence.** A paragraph
+  whose point arrives in sentence five is a paragraph reviewers skim.
+- **Abstract** follows one of three templates, chosen by contribution count:
+  Challenge→Contribution, Challenge→Insight→Contribution, or
+  multiple-contributions (each contribution paired with its advantage *in the
+  same sentence*).
+- **Method subsections carry the triad** — design (the forward process as
+  `input → step → step → output`), then motivation (*because X fails, we
+  design Y*), then technical advantage. Design-only subsections read as a
+  system manual; motivation-only subsections read as a pitch.
+- **Experiments answers three questions**: better than strong baselines,
+  which design choices produce the gain (ablations as deltas), and how far it
+  generalizes. Every contribution claimed in the Introduction maps to at
+  least one experiment.
+- **Conclusion limitations are scope boundaries, not defects.** "We evaluate
+  only on short sequences" bounds the method; "we did not tune the learning
+  rate" invites rejection.
+- **Terminology is frozen** across Abstract→Conclusion. One name per concept.
+
 ### Style
 
 - Adopt the tone of a top-tier ML conference paper: dense, objective,
@@ -235,3 +268,4 @@ host agent MUST honor them on the writing call:
 - `scripts/latex_sanity.py` — unmatched braces, env mismatches, specials
 - `scripts/orphan_cite_gate.py` — every `\cite{KEY}` exists in refs.bib
 - `scripts/table_lint.py` — **NEW** booktabs rule violations + table readability conventions
+- `skills/shared/section_rhetoric.md` — **NEW** per-section structural templates (abstract variants, module triad, experiment questions) + checklists
