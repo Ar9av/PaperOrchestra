@@ -90,17 +90,27 @@ at the start of iteration 1.
 
 ```bash
 python skills/paper-orchestra/scripts/claim_evidence_gate.py \
-    --paper workspace/drafts/paper.tex \
-    --log   workspace/inputs/experimental_log.md \
-    --out   workspace/claim_evidence_report.json
+    --paper  workspace/drafts/paper.tex \
+    --log    workspace/inputs/experimental_log.md \
+    --out    workspace/claim_evidence_report.json \
+    --out-md workspace/claim_evidence_map.md
 ```
+
+The gate sorts every number in the draft into `supported` (the value is in
+`experimental_log.md`), `attributed` (the sentence carries a citation or a
+prior-work cue), or `needs evidence` (neither). Only the third category is a
+finding. See `references/claim-evidence-map.md`.
 
 Exit 0 → PASS, proceed normally.
 Exit 1 → WARN: unsupported numeric claims found. Log in worklog.json as:
 `{gate: "claim_evidence", status: "WARN", unsupported_count: N, report: "workspace/claim_evidence_report.json"}`
-Pass the `unsupported` list from the report to the revision agent in Step 3 as
-an additional instruction: "The following numeric values appear in the paper but
-cannot be corroborated in experimental_log.md — verify or remove them: ..."
+Pass the `needs evidence` rows of `workspace/claim_evidence_map.md` to the
+revision agent in Step 3 as an additional instruction: "The following values
+appear in the paper but cannot be corroborated in experimental_log.md and
+carry no citation — restate them from logged values, attribute them, or remove
+the claim. Do not weaken the sentence into vagueness to make the number
+defensible." A row that survives two iterations should be deleted rather than
+reworded again.
 Do NOT halt on Gate B warnings; the revision agent will address them.
 
 **Gate C — Reverse outline** (runs once, advisory):
@@ -402,6 +412,7 @@ These rules prevent reward hacking and keep the refinement loop honest.
 - `references/writing-quality-check.md` — 5-category anti-AI-prose checklist (pointer to shared)
 - `references/ai-failure-modes.md` — 7-mode integrity gate run before first iteration (pointer to shared)
 - `references/da-reviewer.md` — Devil's Advocate reviewer protocol and concession rules
+- `references/claim-evidence-map.md` — **NEW** the three claim statuses and how the revision agenda consumes them
 - `references/reverse-outline.md` — **NEW** what the paragraph flags mean and how to read a reverse outline
 - `scripts/score_delta.py` — accept/revert/halt decision from two score JSONs; emits decision bands + target-met halt (exit 5)
 - `scripts/decision_band.py` — map an overall score to a canonical decision band (Accept/Minor/Major/Reject)
@@ -415,3 +426,4 @@ These rules prevent reward hacking and keep the refinement loop honest.
 - `skills/shared/ai_failure_modes.md` — full AI research failure modes gate (7 modes)
 - `skills/shared/handoff_schemas.md` — formal data contracts between all pipeline steps
 - `skills/shared/research_brief_template.md` — **NEW** research brief schema (read §1–§4 before first reviewer call)
+- `skills/shared/section_rhetoric.md` — **NEW** per-section structural templates; the per-section checklists feed the reviewer's Logical Flow axis
