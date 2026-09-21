@@ -400,3 +400,4 @@ These rules prevent reward hacking and keep the refinement loop honest.
 - `skills/shared/ai_failure_modes.md` — full AI research failure modes gate (7 modes)
 - `skills/shared/handoff_schemas.md` — formal data contracts between all pipeline steps
 - `skills/shared/research_brief_template.md` — **NEW** research brief schema (read §1–§4 before first reviewer call)
+- `skills/shared/section_rhetoric.md` — **NEW** per-section structural templates; the per-section checklists feed the reviewer's Logical Flow axis

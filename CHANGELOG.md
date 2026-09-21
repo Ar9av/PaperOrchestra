@@ -19,6 +19,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`--out-md` claim-evidence map** — `Value | Section | Claim | Evidence | Status` table ordered needs-evidence first, for direct use as a revision agenda. Claims are now tagged with the section they appear in (including `Abstract`).
 - **`skills/paper-orchestra/scripts/test_claim_evidence_gate.py`** — 18 stdlib-only regression tests, one per bug above. Run: `python3 skills/paper-orchestra/scripts/test_claim_evidence_gate.py`.
 - **`skills/content-refinement-agent/references/claim-evidence-map.md`** — the three claim statuses, what the gate does not check, and how Step 0 feeds findings into the revision agenda.
+### Added
+
+- **`skills/shared/section_rhetoric.md`** — per-section structural templates (three Abstract variants, the Introduction logic chain, the Related Work paragraph template, the Method module triad, the three Experiments questions, Conclusion scope-vs-defect limitations) plus per-section checklists. The App. F.1 prompts specify what each section must contain but not how its paragraphs should be shaped; this supplies that layer. Wired into Step 3 (Intro + Related Work), Step 4 (Abstract/Method/Experiments/Conclusion), and the Step 5 reviewer's Logical Flow axis. Templates adapted from [Master-cai/Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT).
 
 ---
 
