@@ -137,6 +137,28 @@ Output is a normalized candidate list ready to merge into
 cutoff, dedup) is unchanged. See `references/tavily-search-cookbook.md` for
 the full recipe, query patterns, cost estimates, and security notes.
 
+#### Optional: Serply as a Phase 1 backend
+
+If your host has no native web search, OR you want real Google results
+(with `site:` filters), you can use [Serply](https://serply.io)
+([docs](https://serply.io/docs)) via the bundled `scripts/serply_search.py`
+helper. It is **opt-in** and reads `SERPLY_API_KEY` from the environment —
+the repo never commits a key.
+
+```bash
+export SERPLY_API_KEY="your-key-here"   # get one at https://serply.io
+python skills/literature-review-agent/scripts/serply_search.py \
+    --query "Sparse attention long context transformers" \
+    --num-results 10 \
+    --academic \
+    --discovered-for "related_work[2.1]"
+```
+
+Output is a normalized candidate list ready to merge into
+`raw_candidates.json`. Phase 2 verification (Semantic Scholar fuzzy match,
+cutoff, dedup) is unchanged. See `references/serply-search-cookbook.md` for
+the full recipe, query patterns, cost estimates, and security notes.
+
 Combine all discovered candidates into a single working list. Tag each with
 the originating query ID so you can later attribute it to "intro" vs
 "related_work[i]".
@@ -450,6 +472,7 @@ If your host has no web search tool, switch to degraded mode:
 - `references/cross-index-verification.md` — Crossref + OpenAlex corroboration, confidence tiers, arXiv false-positive note
 - `references/exa-search-cookbook.md` — optional Exa backend for Phase 1 (research-paper-focused web search)
 - `references/tavily-search-cookbook.md` — optional Tavily backend for Phase 1 (LLM-optimized web search)
+- `references/serply-search-cookbook.md` — optional Serply backend for Phase 1 (Google SERP API)
 - `scripts/pre_dedup_candidates.py` — **NEW** dedup Phase 1 candidates before Phase 2 (saves 30-40% S2 quota)
 - `scripts/s2_cache.py` — **NEW** persistent S2 response cache (eliminates re-verification on re-runs)
 - `scripts/validate_pool.py` — **NEW** validate & auto-fix citation_pool.json schema (authors format)
@@ -462,6 +485,7 @@ If your host has no web search tool, switch to degraded mode:
 - `scripts/s2_search.py` — **NEW** Semantic Scholar title-search helper; reads `SEMANTIC_SCHOLAR_API_KEY` from env (optional — falls back to unauthenticated)
 - `scripts/exa_search.py` — optional Exa Phase 1 backend (reads `EXA_API_KEY` from env)
 - `scripts/tavily_search.py` — optional Tavily Phase 1 backend (reads `TAVILY_API_KEY` from env)
+- `scripts/serply_search.py` — optional Serply Phase 1 backend (reads `SERPLY_API_KEY` from env)
 - `scripts/crossref_client.py` — **NEW** Crossref title/DOI lookup for cross-index corroboration (no key; reads `CROSSREF_MAILTO` / `PAPER_ORCHESTRA_MAILTO`)
 - `scripts/openalex_client.py` — **NEW** OpenAlex title/DOI lookup for cross-index corroboration (no key; reads `OPENALEX_MAILTO` / `PAPER_ORCHESTRA_MAILTO`)
 - `scripts/cross_verify.py` — **NEW** cross-corroborate the S2-verified pool against Crossref + OpenAlex; flags hallucinated citations (WARN gate)
