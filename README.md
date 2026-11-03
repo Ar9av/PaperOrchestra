@@ -48,7 +48,7 @@ Each skill is:
 Everything else (LLM reasoning, web search, Semantic Scholar lookups, LaTeX compilation) is **delegated to the host agent** by instruction. See [`skills/paper-orchestra/references/host-integration.md`](skills/paper-orchestra/references/host-integration.md) for per-host invocation (Claude Code, Cursor, Antigravity, Cline, Aider).
 
 
-## The seven skills
+## Core skills
 
 | Skill | Paper step | # LLM calls | Role |
 |---|---|---|---|

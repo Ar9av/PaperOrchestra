@@ -30,6 +30,8 @@ install_skills() {
   local label="$2"
   mkdir -p "$target_dir"
   for skill in "$SKILLS_DIR"/*/; do
+    # skills/shared contains reusable references, not an installable skill.
+    [ -f "${skill}SKILL.md" ] || continue
     local skill_name link_path
     skill_name="$(basename "$skill")"
     link_path="$target_dir/$skill_name"
@@ -140,7 +142,11 @@ install_skills "$HOME/.codex/skills"               "~/.codex/skills/ (Codex)"
 install_skills "$HOME/.gemini/antigravity/skills"  "~/.gemini/antigravity/skills/ (Gemini)"
 
 # ── Step 4: Summary ──────────────────────────────────────────
-SKILL_COUNT=$(ls -d "$SKILLS_DIR"/*/ 2>/dev/null | wc -l | tr -d ' ')
+SKILL_COUNT=0
+for skill in "$SKILLS_DIR"/*/; do
+  [ -f "${skill}SKILL.md" ] || continue
+  SKILL_COUNT=$((SKILL_COUNT + 1))
+done
 
 echo ""
 echo "───────────────────────────────────────────────────"

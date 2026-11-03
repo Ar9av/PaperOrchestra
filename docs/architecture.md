@@ -1,6 +1,6 @@
 # Architecture
 
-A deep-dive on how the seven skills compose to implement the
+A deep-dive on how the skill pack composes to implement the
 PaperOrchestra pipeline (arXiv:2604.05018) without any embedded API
 clients.
 
