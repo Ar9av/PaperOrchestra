@@ -137,6 +137,25 @@ Output is a normalized candidate list ready to merge into
 cutoff, dedup) is unchanged. See `references/tavily-search-cookbook.md` for
 the full recipe, query patterns, cost estimates, and security notes.
 
+#### Optional: Keenable as a Phase 1 backend (no API key)
+
+If your host has no native web search and you don't want to sign up for a
+key, you can use [Keenable](https://keenable.ai) via the bundled
+`scripts/keenable_search.py` helper. It is **opt-in** and works without a
+key; if `KEENABLE_API_KEY` is set in the environment it uses the keyed
+endpoint for higher rate limits — the repo never commits a key.
+
+```bash
+python skills/literature-review-agent/scripts/keenable_search.py \
+    --query "Sparse attention long context transformers" \
+    --num-results 15 \
+    --discovered-for "related_work[2.1]"
+```
+
+Output is a normalized candidate list ready to merge into
+`raw_candidates.json`. Phase 2 verification (Semantic Scholar fuzzy match,
+cutoff, dedup) is unchanged.
+
 #### Optional: Serply as a Phase 1 backend
 
 If your host has no native web search, OR you want real Google results
@@ -486,6 +505,7 @@ If your host has no web search tool, switch to degraded mode:
 - `scripts/exa_search.py` — optional Exa Phase 1 backend (reads `EXA_API_KEY` from env)
 - `scripts/tavily_search.py` — optional Tavily Phase 1 backend (reads `TAVILY_API_KEY` from env)
 - `scripts/serply_search.py` — optional Serply Phase 1 backend (reads `SERPLY_API_KEY` from env)
+- `scripts/keenable_search.py` — optional Keenable Phase 1 backend (no key required; optional `KEENABLE_API_KEY` from env)
 - `scripts/crossref_client.py` — **NEW** Crossref title/DOI lookup for cross-index corroboration (no key; reads `CROSSREF_MAILTO` / `PAPER_ORCHESTRA_MAILTO`)
 - `scripts/openalex_client.py` — **NEW** OpenAlex title/DOI lookup for cross-index corroboration (no key; reads `OPENALEX_MAILTO` / `PAPER_ORCHESTRA_MAILTO`)
 - `scripts/cross_verify.py` — **NEW** cross-corroborate the S2-verified pool against Crossref + OpenAlex; flags hallucinated citations (WARN gate)
