@@ -34,7 +34,7 @@ a TODO marker if Intro/Related Work cannot be cited.
    mkdir -p ~/.claude/skills
    for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
             section-writing-agent content-refinement-agent paper-writing-bench \
-            paper-autoraters; do
+            paper-autoraters claim-evidence-audit; do
      ln -sf ~/paper-orchestra/skills/$s ~/.claude/skills/$s
    done
    ```

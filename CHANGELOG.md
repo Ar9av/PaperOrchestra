@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`skills/claim-evidence-audit/`** — optional claim-level audit gate after Step 5 (content refinement) and before final output. Deterministic, stdlib-only scripts: `extract_claims.py` (candidate claims with section and line), `build_evidence_map.py` (map claims to experimental-log numbers/table rows, figures, tables, and citation keys present in the verified `.bib`; flags unmapped claims), `numeric_consistency.py` (paper numbers vs log, handling `%`, decimals, thousands separators, and rounding), `validate_schema.py`, `coverage_gate.py` (default threshold 80%), `audit_report.py`. An opt-in pass lets the host agent fetch cited sources and record supported / partially_supported / not_supported / cannot_verify verdicts with locators (`references/citation-audit.md`). Ships 40 stdlib-only tests with fixtures.
+
+---
+
 ## [v0.3.0] — 2026-09-21
 
 Four new deterministic gates and a rhetorical reference layer for the drafting

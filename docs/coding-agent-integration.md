@@ -38,7 +38,7 @@ pip install -r requirements.txt
 mkdir -p ~/.claude/skills
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters; do
+         paper-autoraters claim-evidence-audit; do
   ln -sf ~/paper-orchestra/skills/$s ~/.claude/skills/$s
 done
 ```
@@ -94,7 +94,7 @@ pip install -r requirements.txt
 mkdir -p .cursor/rules
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters; do
+         paper-autoraters claim-evidence-audit; do
   cp ~/paper-orchestra/skills/$s/SKILL.md .cursor/rules/$s.md
 done
 ```
@@ -128,7 +128,7 @@ git clone https://github.com/<you>/paper-orchestra ~/paper-orchestra
 mkdir -p ~/.antigravity/skills
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters; do
+         paper-autoraters claim-evidence-audit; do
   ln -sf ~/paper-orchestra/skills/$s ~/.antigravity/skills/$s
 done
 ```

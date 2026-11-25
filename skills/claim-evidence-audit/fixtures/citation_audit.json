@@ -1,0 +1,6 @@
+{
+  "audits": [
+    {"claim_id": "C003", "cite_key": "vaswani2017attention", "verdict": "supported",
+     "locator": {"type": "section", "value": "Sec. 1 Introduction, para 2"}, "notes": ""}
+  ]
+}

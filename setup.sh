@@ -11,7 +11,7 @@
 #      - .cursor/skills/    (Cursor)
 #      - .windsurf/skills/  (Windsurf)
 #      - .agents/skills/    (Antigravity / generic agents)
-#   3. Symlinks all 9 skills globally into:
+#   3. Symlinks all skills globally into:
 #      - ~/.claude/skills/               (Claude Code, global)
 #      - ~/.agents/skills/               (OpenClaw + generic agents)
 #      - ~/.codex/skills/                (Codex)
@@ -133,7 +133,7 @@ for agent_dir in "${AGENT_DIRS[@]}"; do
   install_skills "$SCRIPT_DIR/$agent_dir" "$agent_dir/"
 done
 
-# ── Step 3: Install all 9 skills globally ─────────────────────
+# ── Step 3: Install all skills globally ─────────────────────
 # OpenClaw discovers skills from ~/.agents/skills/ (per docs.openclaw.ai/skills);
 # that path also covers OpenCode, Factory Droid, and any AGENTS.md-aware agent.
 install_skills "$HOME/.claude/skills"              "~/.claude/skills/ (Claude Code, global)"
@@ -154,6 +154,7 @@ echo " Setup complete!"
 echo ""
 echo " Skills installed: $SKILL_COUNT"
 echo "   • agent-research-aggregator"
+echo "   • claim-evidence-audit"
 echo "   • content-refinement-agent"
 echo "   • literature-review-agent"
 echo "   • outline-agent"

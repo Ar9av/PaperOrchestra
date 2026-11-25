@@ -62,6 +62,32 @@ Reference for the orchestrator. Source: arXiv:2604.05018, §4 and Fig. 1.
                   └──────────────────────────────────────────────────┘
 ```
 
+## Optional gate: Claim-Evidence Audit (after Step 5, before final output)
+
+```
+  Step 5 output (final/paper.tex)
+          │
+          ▼
+  ┌──────────────────────────────────────────────────┐
+  │  OPTIONAL: claim-evidence-audit (0 core LLM calls)│
+  │  - extract atomic claims (section + line)         │
+  │  - map claims → log numbers / figures / verified  │
+  │    citation keys; flag unmapped claims            │
+  │  - numeric consistency: paper vs experimental log │
+  │  - coverage gate (default ≥ 80% claims supported) │
+  │  - opt-in: judge cited sources, with locators     │
+  │  → workspace/claim_audit/*                        │
+  └──────────────────────────────────────────────────┘
+          │  unsupported claims are softened or removed,
+          ▼  never backed with invented evidence
+  Step 6: compile + provenance
+```
+
+Skipped by default. Run it when the user asks for claim verification or the
+target venue is strict about unsupported claims. It is not part of the paper's
+five-agent pipeline and adds no calls to the App. B budget. See
+`skills/claim-evidence-audit/SKILL.md`.
+
 ## Parallelism rules
 
 - **Steps 2 and 3 are independent** and have no shared state. They MUST run in

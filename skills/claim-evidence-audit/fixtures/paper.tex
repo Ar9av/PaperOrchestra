@@ -1,0 +1,30 @@
+\documentclass{article}
+\usepackage{graphicx}
+\begin{document}
+\begin{abstract}
+We propose SparseLong, a sparse attention method. We show that it improves F1 by 3.2\% over Longformer on NQ-L.
+\end{abstract}
+\section{Introduction}
+Long-document models are costly \cite{vaswani2017attention}. Transformers have become the dominant architecture, as shown by Vaswani et al. \cite{vaswani2017attention,ghost2099}.
+% 99.9 hidden in a comment should be ignored
+\section{Experiments}
+Table~\ref{tab:main} reports results. SparseLong achieves 87.4\% exact match on NQ-L, outperforming BigBird at 85.1\%.
+Our method reaches 41.7 ROUGE-L on NarrativeQA (Figure~\ref{fig:speed}). It also achieves a 99.2\% F1, which is state-of-the-art.
+We use 12 layers and 768 hidden units.
+\begin{table}
+\caption{Main results.}
+\label{tab:main}
+\begin{tabular}{lcc}
+Method & EM & F1 \\
+SparseLong & 87.4 & 91.0 \\
+BigBird & 85.1 & 88.2 \\
+\end{tabular}
+\end{table}
+\begin{figure}
+\includegraphics[width=0.9\linewidth]{figures/fig_speed.png}
+\caption{Speed.}
+\label{fig:speed}
+\end{figure}
+\section{Conclusion}
+We demonstrate that sparse attention is effective.
+\end{document}

@@ -1,6 +1,6 @@
 ---
 name: paper-orchestra
-description: Orchestrate the full PaperOrchestra (Song et al., 2026, arXiv:2604.05018) five-agent pipeline to turn unstructured research materials (idea, experimental log, LaTeX template, conference guidelines, optional figures) into a submission-ready LaTeX manuscript and compiled PDF. TRIGGER when the user asks to "write a paper from my experiments", "turn this idea and these results into a paper", "generate a conference submission", "run paper-orchestra on X", or otherwise wants the end-to-end paper-writing pipeline. Coordinates the outline-agent, plotting-agent, literature-review-agent, section-writing-agent, and content-refinement-agent skills.
+description: Orchestrate the full PaperOrchestra (Song et al., 2026, arXiv:2604.05018) five-agent pipeline to turn unstructured research materials (idea, experimental log, LaTeX template, conference guidelines, optional figures) into a submission-ready LaTeX manuscript and compiled PDF. TRIGGER when the user asks to "write a paper from my experiments", "turn this idea and these results into a paper", "generate a conference submission", "run paper-orchestra on X", or otherwise wants the end-to-end paper-writing pipeline. Coordinates the outline-agent, plotting-agent, literature-review-agent, section-writing-agent, and content-refinement-agent skills (plus the optional claim-evidence-audit gate).
 data_access_level: raw
 ---
 
@@ -47,6 +47,7 @@ Step 3: Lit Review   ─┘                                           (~20-30 ca
 
 Step 4: Section Writing  ──▶  drafts/paper.tex                    (1 LLM call)
 Step 5: Content Refine   ──▶  final/paper.tex + final/paper.pdf   (~5-7 calls, ~3 iters)
+[opt] Claim-Evidence Audit ──▶  claim_audit/*                     (0 core calls)
 ```
 
 Step 2 and Step 3 are independent and **MUST run in parallel** when your host
@@ -222,6 +223,20 @@ best snapshot):
 
 The accepted snapshot is copied to `workspace/final/paper.tex`.
 
+### 5.5. Claim-Evidence Audit (OPTIONAL gate — after Step 5, before final output)
+
+Skipped unless the user asks for claim verification or the venue is strict about
+unsupported claims. Load `skills/claim-evidence-audit/SKILL.md` and follow it
+against `workspace/final/paper.tex`. It extracts claims with section/line,
+maps them to evidence in `experimental_log.md`, figures, and the verified
+`refs.bib`, checks paper numbers against the log, and enforces a coverage
+threshold (default 80%); an opt-in pass judges whether cited sources really
+support cited-fact claims. Outputs go to `workspace/claim_audit/`.
+
+Safety rule (same as Step 5): never game the evaluator or invent evidence.
+Unsupported claims are softened or removed; support is never fabricated. If the
+audit changes the paper, re-compile in Step 6.
+
 ### 6. Compile and finalize
 
 ```bash
@@ -262,6 +277,10 @@ workspace/
 │   ├── iter1/
 │   ├── iter2/
 │   └── iter3/
+├── claim_audit/                     # optional claim-evidence-audit output
+│   ├── claims.json
+│   ├── claim_evidence_map.json / .md
+│   └── audit_report.md
 ├── final/                           # accepted snapshot + compiled PDF
 │   ├── paper.tex
 │   └── paper.pdf
@@ -299,4 +318,5 @@ Code, Cursor, Antigravity, Cline, Aider, OpenCode).
 - `scripts/anti_leakage_check.py` — grep draft for leaked author names/emails/affils
 - `scripts/claim_evidence_gate.py` — **NEW** WARN gate: verify numeric claims in draft are grounded in experimental_log.md
 - `scripts/diff_outlines.py` — **NEW** diff original vs reconciled outline; writes reconciliation_summary.md
+- `skills/claim-evidence-audit/SKILL.md` — **NEW** optional claim-level audit gate (after Step 5)
 - `skills/shared/research_brief_template.md` — **NEW** schema for workspace/research_brief.md (accumulated cross-agent context)

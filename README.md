@@ -60,6 +60,7 @@ Everything else (LLM reasoning, web search, Semantic Scholar lookups, LaTeX comp
 | `content-refinement-agent` | Step 5 | ~5–7 | Simulated peer review; accept/revert per strict halt rules; safety constraints prevent gaming the evaluator. |
 | `paper-writing-bench` | §3 | — | Reverse-engineer raw materials (Sparse/Dense idea, experimental log) from an existing paper to build benchmark cases. |
 | `paper-autoraters` | App. F.3 | — | Run the paper's own autoraters: Citation F1 (P0/P1), LitReview quality (6-axis), SxS paper quality, SxS litreview quality. |
+| `claim-evidence-audit` *(optional)* | after Step 5 | 0 core; host reasoning for review + opt-in citation pass | Claim-level audit: extract claims with section/line, map each to log numbers, figures, or verified citations, check paper numbers against the log, enforce a coverage threshold, and (opt-in) judge cited sources as supported / partially_supported / not_supported / cannot_verify. |
 
 Steps 2 and 3 run in parallel (see `skills/paper-orchestra/references/pipeline.md`).
 
@@ -242,7 +243,7 @@ Then symlink the skills you want into your host's skill directory:
 mkdir -p ~/.claude/skills
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters agent-research-aggregator; do
+         paper-autoraters agent-research-aggregator claim-evidence-audit; do
   ln -sf ~/paper-orchestra/skills/$s ~/.claude/skills/$s
 done
 
@@ -250,7 +251,7 @@ done
 mkdir -p ~/.all-skills
 for s in paper-orchestra outline-agent plotting-agent literature-review-agent \
          section-writing-agent content-refinement-agent paper-writing-bench \
-         paper-autoraters agent-research-aggregator; do
+         paper-autoraters agent-research-aggregator claim-evidence-audit; do
   ln -sf ~/paper-orchestra/skills/$s ~/.all-skills/$s
 done
 ```
